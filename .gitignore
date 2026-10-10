@@ -1,0 +1,18 @@
+# Credenciais e certificados: nunca versionar
+*.key
+*.pem
+*.pfx
+*.p12
+*.crt
+*.cer
+.env
+
+# Saídas dos scripts (contêm nomes de arquivos e pastas internos)
+*.csv
+*.log
+
+# Sistema / editores
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
