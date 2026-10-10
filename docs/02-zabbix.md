@@ -100,6 +100,7 @@ Opcionais mais usadas:
 | `{$SPO.TENANT.PUSED.CRIT}` | `100` | não | Percentual da cota do tenant para alerta High (acima de 100% o SharePoint fica somente leitura). |
 | `{$SPO.TENANT.PUSED.WARN}` | `90` | não | Percentual da cota do tenant para alerta Warning. |
 | `{$SPO.TENANT.QUOTA.GB}` | `0` | **sim** | Cota total do tenant em GB: (Get-SPOTenant).StorageQuota / 1024. Defina no host. |
+| `{$SPO.VERSIONS.KEEP}` | `5` | não | Simulação (somente leitura): quantas versões mais recentes manter por arquivo, contando a atual. Calcula o espaço que seria liberado excluindo as demais. Nada é excluído. |
 | `{$SPO.VERSIONS.MIN_MB}` | `50` | não | Tamanho mínimo (MB) do arquivo para entrar na análise de versões. |
 | `{$SPO.VERSIONS.SCAN}` | `500` | não | Quantos dos maiores arquivos têm as versões medidas para achar os maiores históricos de versões (máximo 2000; cada 20 arquivos = 1 chamada $batch ao Graph). |
 
@@ -152,11 +153,13 @@ Se algum tiver texto, veja [04-solucao-de-problemas.md](04-solucao-de-problemas.
 | SPO: Maiores históricos de versões – somados | `spo.bigfiles.versions_total` | DEPENDENT | dependente |
 | SPO: Versões antigas – arquivos analisados | `spo.bigfiles.versions_scanned` | DEPENDENT | dependente |
 | SPO: Versões antigas – total nos arquivos analisados | `spo.bigfiles.versions_scanned_size` | DEPENDENT | dependente |
+| SPO: Versões – liberável mantendo as mais recentes | `spo.bigfiles.keep_reclaim_scanned` | DEPENDENT | dependente |
 | SPO: Região da pesquisa | `spo.bigfiles.region` | DEPENDENT | dependente |
 | SPO: Config – tamanho mínimo dos maiores arquivos (MB) | `spo.config.bigfiles.min_mb` | DEPENDENT | dependente |
 | SPO: Config – quantidade de maiores arquivos | `spo.config.bigfiles.max` | DEPENDENT | dependente |
 | SPO: Config – tamanho mínimo na análise de versões (MB) | `spo.config.versions.min_mb` | DEPENDENT | dependente |
 | SPO: Config – arquivos analisados nas versões | `spo.config.versions.scan` | DEPENDENT | dependente |
+| SPO: Config – versões mantidas na simulação | `spo.config.versions.keep` | DEPENDENT | dependente |
 | SPO: Leitura das lixeiras | `spo.recyclebin.get` | SCRIPT | {$SPO.RB.INTERVAL} |
 | SPO: Lixeira 1º estágio – tamanho | `spo.recycle.stage1.size` | DEPENDENT | dependente |
 | SPO: Lixeira 1º estágio – itens | `spo.recycle.stage1.count` | DEPENDENT | dependente |
@@ -176,7 +179,7 @@ Se algum tiver texto, veja [04-solucao-de-problemas.md](04-solucao-de-problemas.
 | SPO: Descoberta de sites | `spo.sites.discovery` | Site {#SITE.URL}: armazenamento usado<br>Site {#SITE.URL}: cota do site<br>Site {#SITE.URL}: % da cota usada<br>Site {#SITE.URL}: arquivos<br>Site {#SITE.URL}: arquivos ativos (7 dias)<br>Site {#SITE.URL}: última atividade |
 | SPO: Descoberta de bibliotecas | `spo.libraries.discovery` | Biblioteca {#LIB.PATH}: tamanho<br>Biblioteca {#LIB.PATH}: itens na raiz<br>Biblioteca {#LIB.PATH}: última modificação |
 | SPO: Descoberta de pastas | `spo.folders.discovery` | Pasta {#FOLDER.PATH}: tamanho<br>Pasta {#FOLDER.PATH}: itens<br>Pasta {#FOLDER.PATH}: criada em<br>Pasta {#FOLDER.PATH}: última modificação |
-| SPO: Descoberta dos maiores arquivos e históricos de versões | `spo.bigfiles.discovery` | Arquivo {#FILE.LABEL}: tamanho<br>Arquivo {#FILE.LABEL}: versões antigas<br>Arquivo {#FILE.LABEL}: qtd versões<br>Arquivo {#FILE.LABEL}: última alteração<br>Arquivo {#FILE.LABEL}: url<br>Arquivo {#FILE.LABEL}: url da pasta |
+| SPO: Descoberta dos maiores arquivos e históricos de versões | `spo.bigfiles.discovery` | Arquivo {#FILE.LABEL}: tamanho<br>Arquivo {#FILE.LABEL}: versões antigas<br>Arquivo {#FILE.LABEL}: qtd versões<br>Arquivo {#FILE.LABEL}: última alteração<br>Arquivo {#FILE.LABEL}: liberável<br>Arquivo {#FILE.LABEL}: versões excedentes<br>Arquivo {#FILE.LABEL}: url<br>Arquivo {#FILE.LABEL}: url da pasta |
 | SPO: Descoberta das lixeiras por site | `spo.recycle.sites.discovery` | Lixeira {#RB.SITE}: 1º estágio – tamanho<br>Lixeira {#RB.SITE}: 1º estágio – itens<br>Lixeira {#RB.SITE}: 2º estágio – tamanho<br>Lixeira {#RB.SITE}: 2º estágio – itens |
 
 - Itens de **arquivos** que saem do top N são removidos depois de 3 dias.

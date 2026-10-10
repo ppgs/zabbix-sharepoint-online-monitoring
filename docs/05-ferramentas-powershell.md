@@ -1,10 +1,10 @@
-# 5. Ferramentas PowerShell (validação e análise)
+# 5. Ferramentas PowerShell (validação, análise e limpeza)
 
-Scripts em [tools/](../tools) para **validar as permissões antes de configurar o Zabbix** e para **analisar** o armazenamento com mais detalhe. Todos são **somente leitura**.
+Scripts em [tools/](../tools) para **validar as permissões antes de configurar o Zabbix** e para **analisar** o armazenamento com mais detalhe. Todos são **somente leitura**, exceto o `Remove-SPOFileVersions.ps1`, que só altera algo com `-Execute` e confirmação.
 
 ## Pré-requisitos
 
-- **PowerShell 7.2 ou superior** (`pwsh`). Os scripts não rodam no Windows PowerShell 5.1.
+- **PowerShell 7.4 ou superior** (`pwsh`), exigido pelo PnP.PowerShell 3. Os scripts não rodam no Windows PowerShell 5.1.
 - **Para os scripts com PnP:** o módulo PnP.PowerShell instalado para todos os usuários. Não instale módulos em pastas sincronizadas pelo OneDrive.
 ```powershell
 Install-Module PnP.PowerShell -Scope AllUsers
@@ -75,6 +75,14 @@ Saídas em `C:\Temp\SPO-Versoes`:
 - `top_versoes_<data>.csv`: o top N com o tamanho exato das versões;
 - `bibliotecas_versoes_<data>.csv`: estimativa por biblioteca;
 - `erros_<data>.log`: o que não pôde ser lido.
+
+## Remove-SPOFileVersions.ps1
+
+Mantém só as **N versões mais recentes** (padrão 5, contando a atual) de um ou vários arquivos. **Simula por padrão**; com `-Execute` move as versões excedentes para a lixeira do site, e com `-Permanent` exclui de vez (irreversível). Guia completo em [07-limpeza-de-versoes.md](07-limpeza-de-versoes.md).
+
+```powershell
+pwsh -NoProfile -File .\tools\Remove-SPOFileVersions.ps1 -ClientId <id-do-app-pnp> -FileUrl "https://contoso.sharepoint.com/sites/Financeiro/Shared%20Documents/Fechamento.xlsx"
+```
 
 > Os CSVs gerados têm nomes de arquivos e pastas internos. **Não** os coloque no repositório; o `.gitignore` já exclui `*.csv`.
 

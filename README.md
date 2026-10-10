@@ -16,7 +16,7 @@ Toda a coleta é feita pelo próprio Zabbix, com itens do tipo **Script** (JavaS
 |---|---|---|---|
 | **Relatórios de uso** | Uso, cota e % do tenant; uso, cota e atividade de cada site; sites excluídos | Graph `reports/getSharePointSiteUsage*` | 6 h |
 | **Bibliotecas e pastas** | Tamanho de cada biblioteca de todos os sites; pastas de 1º nível dos sites escolhidos | Graph `drives` (com `$batch`) | 3 h |
-| **Maiores arquivos e versões** | Top N maiores arquivos (site, pasta, tamanho, alteração) e top N maiores históricos de versões, com link para o arquivo e a pasta | Pesquisa do Microsoft 365 (`/search/query`) + Graph `versions` | 6 h |
+| **Maiores arquivos e versões** | Top N maiores arquivos (site, pasta, tamanho, alteração) e top N maiores históricos de versões, com link para o arquivo e a pasta e **simulação** do espaço liberado mantendo só as N versões mais recentes | Pesquisa do Microsoft 365 (`/search/query`) + Graph `versions` | 6 h |
 | **Lixeiras** *(opcional)* | Quantidade de itens e tamanho da lixeira de 1º e 2º estágio, total e por site | API REST do SharePoint (`/_api/site/RecycleBin`) | 6 h |
 
 Alertas incluídos: tenant acima de 90% e de 100% da cota (sites em somente leitura), site acima da cota dele, falha em cada coleta, relatório desatualizado e falta de dados.
@@ -106,8 +106,9 @@ flowchart TB
 │   ├── 03-grafana.md                           ← plugin, fonte de dados, usuário, painel
 │   ├── 04-solucao-de-problemas.md              ← erros conhecidos e como resolver
 │   ├── 05-ferramentas-powershell.md            ← scripts de validação e análise
-│   └── 06-seguranca.md                         ← boas práticas e manutenção das credenciais
-├── tools/                                      ← scripts PowerShell 7 de validação (somente leitura)
+│   ├── 06-seguranca.md                         ← boas práticas e manutenção das credenciais
+│   └── 07-limpeza-de-versoes.md                ← script PowerShell: manter só as N versões mais recentes
+├── tools/                                      ← scripts PowerShell 7 de validação, análise e limpeza de versões
 └── src/                                        ← código JavaScript dos itens Script (para revisão)
 ```
 
@@ -135,7 +136,7 @@ O porquê de cada permissão, e por que as lixeiras exigem certificado e control
 - **Índice da Pesquisa:** pode atrasar minutos ou horas em relação aos arquivos.
 - **Universo dos maiores históricos de versões:** são os N maiores arquivos acima de um tamanho mínimo (macros `{$SPO.VERSIONS.*}`), não todos os arquivos do tenant.
 - **Itens da lixeira:** cada "item" é uma entrada da lixeira. Uma pasta excluída conta como 1 item, e o tamanho dela inclui todo o conteúdo.
-- **Somente leitura:** o template não faz limpeza. Exclusão de versões, esvaziamento de lixeiras e purga de sites devem ser feitos à parte, com backup e aprovação.
+- **Somente leitura:** o template e o painel não alteram nada. A limpeza de versões é feita à parte pelo script PowerShell `tools/Remove-SPOFileVersions.ps1`, rodado por um administrador: simula por padrão e, com confirmação, **move para a lixeira** (recuperável) as versões além das N mais recentes de um ou vários arquivos ([docs/07-limpeza-de-versoes.md](docs/07-limpeza-de-versoes.md)). Esvaziar lixeiras e purgar sites continua fora do projeto.
 
 ## Autor
 

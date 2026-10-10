@@ -71,7 +71,7 @@
     "to": "now"
   },
   "schemaVersion": 41,
-  "version": 18,
+  "version": 21,
   "links": [
     {
       "title": "Centro de administração do SharePoint",
@@ -268,6 +268,33 @@
           "application": "",
           "itemTag": "",
           "item": "SPO: Config – arquivos analisados nas versões"
+        },
+        "definition": "Zabbix - itemValues",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "skipUrlSync": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "cfg_keep",
+        "label": "Versões mantidas",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "query": {
+          "queryType": "itemValues",
+          "group": "$grupo",
+          "host": "$host",
+          "application": "",
+          "itemTag": "",
+          "item": "SPO: Config – versões mantidas na simulação"
         },
         "definition": "Zabbix - itemValues",
         "refresh": 2,
@@ -2790,7 +2817,7 @@
           "options": {
             "source": "Field",
             "format": "regexp",
-            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|url da pasta|url)$/",
+            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|versões excedentes|liberável|url da pasta|url)$/",
             "replace": false,
             "keepTime": false
           }
@@ -2799,7 +2826,7 @@
           "id": "groupingToMatrix",
           "filter": {
             "id": "byRefId",
-            "options": "/^reduce-[A-D-]+$/"
+            "options": "/^reduce-[A-DGH-]+$/"
           },
           "options": {
             "columnField": "Metrica",
@@ -3145,7 +3172,7 @@
         "x": 0,
         "y": 62,
         "w": 4,
-        "h": 6
+        "h": 4
       },
       "targets": [
         {
@@ -3226,7 +3253,7 @@
       "id": 18,
       "type": "table",
       "title": "Maiores históricos de versões – top ${cfg_max} de todos os sites",
-      "description": "Arquivos cujas versões antigas mais ocupam a cota, com site, pasta, quantidade de versões e tamanho atual. Analisa os ${cfg_ver_scan} maiores arquivos acima de ${cfg_ver_min_mb} MB (macros {$SPO.VERSIONS.SCAN} e {$SPO.VERSIONS.MIN_MB} do host). Atualiza a cada 6 h.",
+      "description": "Arquivos cujas versões antigas mais ocupam a cota, com site, pasta, quantidade de versões e tamanho atual. Analisa os ${cfg_ver_scan} maiores arquivos acima de ${cfg_ver_min_mb} MB (macros {$SPO.VERSIONS.SCAN} e {$SPO.VERSIONS.MIN_MB} do host). Excedentes e Liberável são uma SIMULAÇÃO de manter só as ${cfg_keep} versões mais recentes (macro {$SPO.VERSIONS.KEEP}); nada é excluído. Para limpar, use o script PowerShell Remove-SPOFileVersions.ps1. Atualiza a cada 6 h.",
       "datasource": {
         "type": "alexanderzobnin-zabbix-datasource",
         "uid": "${DS_ZABBIX}"
@@ -3387,6 +3414,80 @@
           }
         },
         {
+          "refId": "H",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: versões excedentes$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "G",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: liberável$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
           "refId": "E",
           "datasource": {
             "type": "alexanderzobnin-zabbix-datasource",
@@ -3466,7 +3567,7 @@
           "id": "reduce",
           "filter": {
             "id": "byRefId",
-            "options": "B|C|A|D"
+            "options": "B|C|A|D|H|G"
           },
           "options": {
             "mode": "seriesToRows",
@@ -3495,7 +3596,7 @@
           "options": {
             "source": "Field",
             "format": "regexp",
-            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|url da pasta|url)$/",
+            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|versões excedentes|liberável|url da pasta|url)$/",
             "replace": false,
             "keepTime": false
           }
@@ -3504,7 +3605,7 @@
           "id": "groupingToMatrix",
           "filter": {
             "id": "byRefId",
-            "options": "/^reduce-[A-D-]+$/"
+            "options": "/^reduce-[A-DGH-]+$/"
           },
           "options": {
             "columnField": "Metrica",
@@ -3566,7 +3667,9 @@
             "renameByName": {
               "versões antigas": "Versões antigas",
               "qtd versões": "Qtd versões",
-              "tamanho": "Tamanho"
+              "tamanho": "Tamanho",
+              "versões excedentes": "Excedentes",
+              "liberável": "Liberável"
             },
             "indexByName": {
               "Arquivo": 0,
@@ -3576,8 +3679,10 @@
               "qtd versões": 4,
               "tamanho": 5,
               "Alterado": 6,
-              "url": 7,
-              "url da pasta": 8
+              "versões excedentes": 7,
+              "liberável": 8,
+              "url": 9,
+              "url da pasta": 10
             }
           }
         },
@@ -3757,6 +3862,68 @@
           {
             "matcher": {
               "id": "byName",
+              "options": "Excedentes"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 105
+              },
+              {
+                "id": "description",
+                "value": "Versões que sairiam mantendo só as ${cfg_keep} mais recentes (simulação)."
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Liberável"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 170
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-GrYlRd"
+                }
+              },
+              {
+                "id": "description",
+                "value": "Espaço que seria liberado mantendo só as ${cfg_keep} versões mais recentes (simulação, nada é excluído). A limpeza é feita pelo script PowerShell Remove-SPOFileVersions.ps1."
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
               "options": "url"
             },
             "properties": [
@@ -3794,9 +3961,9 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 66,
         "w": 4,
-        "h": 6
+        "h": 4
       },
       "targets": [
         {
@@ -3860,6 +4027,96 @@
             "steps": [
               {
                 "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 29,
+      "type": "stat",
+      "title": "Liberável mantendo ${cfg_keep} versões",
+      "description": "SIMULAÇÃO (nada é excluído): espaço que seria liberado nos ${cfg_ver_scan} arquivos analisados mantendo só as ${cfg_keep} versões mais recentes de cada um (macro {$SPO.VERSIONS.KEEP}).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 70,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Versões – liberável mantendo as mais recentes"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
                 "value": null
               }
             ]

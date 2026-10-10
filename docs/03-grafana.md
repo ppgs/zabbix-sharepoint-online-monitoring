@@ -70,7 +70,7 @@ Clique em **Salvar e testar**. A mensagem deve mostrar a versão do Zabbix.
 | **Capacidade do tenant** | Gauge de % da cota; armazenamento usado; cota; espaço livre (negativo = acima da cota); sites ativos; tendência de uso × cota. |
 | **Lixeiras e espaço recuperável** | Lixeira de 1º e 2º estágio (tamanho e itens); barras de **espaço recuperável** (lixeiras, versões antigas e sites excluídos); tabela de lixeiras por site. |
 | **Sites e bibliotecas** | Top 20 sites; tamanho por biblioteca de todos os sites; maiores pastas; última modificação das bibliotecas. |
-| **Arquivos grandes e versões** | Maiores arquivos (top N) e maiores históricos de versões (top N), com **links** para abrir o arquivo e a pasta no SharePoint em uma nova aba. |
+| **Arquivos grandes e versões** | Maiores arquivos (top N) e maiores históricos de versões (top N), com **links** para abrir o arquivo e a pasta no SharePoint em uma nova aba. As colunas **Excedentes** e **Liberável** simulam manter só as N versões mais recentes; a limpeza é feita pelo [script PowerShell](07-limpeza-de-versoes.md). |
 | **Saúde da coleta e alertas** | Status de cada coleta, data e idade do relatório, sites lidos nas lixeiras e eventos das triggers do host. |
 
 Atalhos no topo, que abrem em nova aba: Centro de administração do SharePoint, lixeira do site raiz e métricas de armazenamento do site raiz.

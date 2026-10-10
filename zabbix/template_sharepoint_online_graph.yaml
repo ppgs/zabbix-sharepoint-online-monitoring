@@ -21,7 +21,7 @@ zabbix_export:
       Autor: Pablo Pires de Godoi Silva. Licença MIT.
     vendor:
       name: Pablo Pires de Godoi Silva
-      version: 7.4-1.0.0
+      version: 7.4-1.1.0
     groups:
     - name: Templates/Applications
     items:
@@ -945,6 +945,8 @@ zabbix_export:
             versions_scan: 0
         };
         out.config.versions_scan = Math.min(Math.max(Number(p.versions_scan) || 500, out.config.max), 2000);
+        // Simulacao (somente leitura): quantas versoes mais recentes manter, contando a atual
+        out.config.versions_keep = Math.min(Math.max(Number(p.versions_keep) || 5, 1), 500);
 
         function newReq() {
             var r = new HttpRequest();
@@ -1142,30 +1144,51 @@ zabbix_export:
                     modified: isNaN(t) ? 0 : Math.round(t / 1000),
                     versions_count: 0,
                     versions_size: 0,
+                    keep_excess_count: 0,
+                    keep_reclaim: 0,
                     url: linkUrl(url),
                     folder_url: linkUrl(url.substring(0, url.lastIndexOf('/')))
                 });
                 if (f.id && f.parentReference && f.parentReference.driveId) {
-                    vurls.push('/drives/' + encodeURIComponent(f.parentReference.driveId) + '/items/' + encodeURIComponent(f.id) + '/versions?$select=id,size');
+                    vurls.push('/drives/' + encodeURIComponent(f.parentReference.driveId) + '/items/' + encodeURIComponent(f.id) + '/versions?$select=id,size,lastModifiedDateTime');
                     vidx.push(files.length - 1);
                 }
             }
 
-            // Versoes: a primeira da lista e a atual; as demais sao o historico que ocupa a cota
-            var vres = graphBatch(token, vurls), vfail = 0, scannedSize = 0;
+            // Versoes: ordena da mais recente para a mais antiga; a primeira e a atual, as demais ocupam a cota.
+            // Arquivos com muitas versoes vem paginados (@odata.nextLink): busca as paginas restantes.
+            var vres = graphBatch(token, vurls), vfail = 0, scannedSize = 0, reclaimScanned = 0, nkeep = out.config.versions_keep;
+            var pager = null, pagesLeft = 200;
             for (i = 0; i < vidx.length; i++) {
                 var vr = vres[String(i)];
                 if (!vr || vr.status !== 200 || !vr.body) {
                     vfail++;
                     continue;
                 }
-                var vals = vr.body.value || [], vsum = 0, k;
+                var vals = (vr.body.value || []).slice(), next = vr.body['@odata.nextLink'] || null, k;
+                while (next && pagesLeft-- > 0) {
+                    if (!pager) {
+                        pager = newReq();
+                        pager.addHeader('Authorization: Bearer ' + token);
+                    }
+                    var pr = pager.get(next);
+                    if (pager.getStatus() !== 200) { vfail++; break; }
+                    var pd = JSON.parse(pr);
+                    vals = vals.concat(pd.value || []);
+                    next = pd['@odata.nextLink'] || null;
+                }
+                vals.sort(function (a, b) { return Date.parse(b.lastModifiedDateTime || 0) - Date.parse(a.lastModifiedDateTime || 0); });
+                var vsum = 0, rsum = 0;
                 for (k = 1; k < vals.length; k++) {
                     vsum += Number(vals[k].size) || 0;
+                    if (k >= nkeep) { rsum += Number(vals[k].size) || 0; }
                 }
                 files[vidx[i]].versions_count = Math.max(vals.length - 1, 0);
                 files[vidx[i]].versions_size = vsum;
+                files[vidx[i]].keep_excess_count = Math.max(vals.length - nkeep, 0);
+                files[vidx[i]].keep_reclaim = rsum;
                 scannedSize += vsum;
+                reclaimScanned += rsum;
             }
             if (vfail > 0) {
                 out.warning = 'Versoes nao lidas em ' + vfail + ' arquivo(s) (throttling ou permissao).';
@@ -1186,6 +1209,7 @@ zabbix_export:
             out.versions_total = verTotal;
             out.versions_scanned = files.length;
             out.versions_scanned_size = scannedSize;
+            out.keep_reclaim_scanned = reclaimScanned;
         }
         catch (e) {
             out.error = String(e).substring(0, 500);
@@ -1211,6 +1235,8 @@ zabbix_export:
         value: '{$SPO.SEARCH.REGION}'
       - name: tenant_id
         value: '{$SPO.TENANT.ID}'
+      - name: versions_keep
+        value: '{$SPO.VERSIONS.KEEP}'
       - name: versions_min_mb
         value: '{$SPO.VERSIONS.MIN_MB}'
       - name: versions_scan
@@ -1355,6 +1381,25 @@ zabbix_export:
       tags:
       - tag: component
         value: bigfiles
+    - uuid: e92f32b4f72b4922a3d72ca80a831351
+      name: 'SPO: Versões – liberável mantendo as mais recentes'
+      type: DEPENDENT
+      key: spo.bigfiles.keep_reclaim_scanned
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: 'Simulação (somente leitura): espaço que seria liberado nos arquivos analisados mantendo só as {$SPO.VERSIONS.KEEP} versões mais recentes de cada um. Nada é excluído.'
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.keep_reclaim_scanned
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
     - uuid: 0fb9f4e406c44b858c97c8b977158756
       name: 'SPO: Região da pesquisa'
       type: DEPENDENT
@@ -1440,6 +1485,24 @@ zabbix_export:
       - type: JSONPATH
         parameters:
         - $.config.versions_scan
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: config
+    - uuid: ae2a6448498b443a93c7d10f41d5e86d
+      name: 'SPO: Config – versões mantidas na simulação'
+      type: DEPENDENT
+      key: spo.config.versions.keep
+      history: 1d
+      value_type: UNSIGNED
+      trends: '0'
+      description: Valor efetivo de {$SPO.VERSIONS.KEEP}. Usado pelo painel do Grafana.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.config.versions_keep
         error_handler: DISCARD_VALUE
       master_item:
         key: spo.bigfiles.get
@@ -2345,6 +2408,45 @@ zabbix_export:
           value: bigfiles
         - tag: site
           value: '{#FILE.SITE}'
+      - uuid: a54146a47b584bd4ad35d6818bd38073
+        name: 'Arquivo {#FILE.LABEL}: liberável'
+        type: DEPENDENT
+        key: spo.bigfile.keep_reclaim["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].keep_reclaim.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: 3c263767878342198a8877f46c8571a6
+        name: 'Arquivo {#FILE.LABEL}: versões excedentes'
+        type: DEPENDENT
+        key: spo.bigfile.keep_excess["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].keep_excess_count.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
       - uuid: 15d5628f2539472bbddce581a28cbdbc
         name: 'Arquivo {#FILE.LABEL}: url'
         type: DEPENDENT
@@ -2617,6 +2719,9 @@ zabbix_export:
     - macro: '{$SPO.TENANT.QUOTA.GB}'
       value: '0'
       description: 'Cota total do tenant em GB: (Get-SPOTenant).StorageQuota / 1024. Defina no host.'
+    - macro: '{$SPO.VERSIONS.KEEP}'
+      value: '5'
+      description: 'Simulação (somente leitura): quantas versões mais recentes manter por arquivo, contando a atual. Calcula o espaço que seria liberado excluindo as demais. Nada é excluído.'
     - macro: '{$SPO.VERSIONS.MIN_MB}'
       value: '50'
       description: Tamanho mínimo (MB) do arquivo para entrar na análise de versões.

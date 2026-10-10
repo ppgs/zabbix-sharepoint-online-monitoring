@@ -2,6 +2,12 @@
 
 Autor: Pablo Pires de Godoi Silva.
 
+## 1.1.0
+
+- Simulação (somente leitura) de manter só as N versões mais recentes por arquivo: colunas **Excedentes** e **Liberável** e total liberável (macro `{$SPO.VERSIONS.KEEP}`, padrão 5).
+- Script PowerShell **`tools/Remove-SPOFileVersions.ps1`** para manter só as N versões mais recentes de um ou vários arquivos (URL ou CSV): simulação por padrão, lixeira com `-Execute` ou exclusão permanente com `-Permanent`, confirmação digitada, arquivos com retenção ou em check-out ignorados e log CSV. O template e o painel continuam somente leitura.
+- Leitura de versões agora segue a paginação do Graph: arquivos com mais de 200 versões passam a ser contados por inteiro.
+
 ## 1.0.0
 
 Primeira versão pública.

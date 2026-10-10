@@ -13,6 +13,8 @@ out.config = {
     versions_scan: 0
 };
 out.config.versions_scan = Math.min(Math.max(Number(p.versions_scan) || 500, out.config.max), 2000);
+// Simulacao (somente leitura): quantas versoes mais recentes manter, contando a atual
+out.config.versions_keep = Math.min(Math.max(Number(p.versions_keep) || 5, 1), 500);
 
 function newReq() {
     var r = new HttpRequest();
@@ -210,30 +212,51 @@ try {
             modified: isNaN(t) ? 0 : Math.round(t / 1000),
             versions_count: 0,
             versions_size: 0,
+            keep_excess_count: 0,
+            keep_reclaim: 0,
             url: linkUrl(url),
             folder_url: linkUrl(url.substring(0, url.lastIndexOf('/')))
         });
         if (f.id && f.parentReference && f.parentReference.driveId) {
-            vurls.push('/drives/' + encodeURIComponent(f.parentReference.driveId) + '/items/' + encodeURIComponent(f.id) + '/versions?$select=id,size');
+            vurls.push('/drives/' + encodeURIComponent(f.parentReference.driveId) + '/items/' + encodeURIComponent(f.id) + '/versions?$select=id,size,lastModifiedDateTime');
             vidx.push(files.length - 1);
         }
     }
 
-    // Versoes: a primeira da lista e a atual; as demais sao o historico que ocupa a cota
-    var vres = graphBatch(token, vurls), vfail = 0, scannedSize = 0;
+    // Versoes: ordena da mais recente para a mais antiga; a primeira e a atual, as demais ocupam a cota.
+    // Arquivos com muitas versoes vem paginados (@odata.nextLink): busca as paginas restantes.
+    var vres = graphBatch(token, vurls), vfail = 0, scannedSize = 0, reclaimScanned = 0, nkeep = out.config.versions_keep;
+    var pager = null, pagesLeft = 200;
     for (i = 0; i < vidx.length; i++) {
         var vr = vres[String(i)];
         if (!vr || vr.status !== 200 || !vr.body) {
             vfail++;
             continue;
         }
-        var vals = vr.body.value || [], vsum = 0, k;
+        var vals = (vr.body.value || []).slice(), next = vr.body['@odata.nextLink'] || null, k;
+        while (next && pagesLeft-- > 0) {
+            if (!pager) {
+                pager = newReq();
+                pager.addHeader('Authorization: Bearer ' + token);
+            }
+            var pr = pager.get(next);
+            if (pager.getStatus() !== 200) { vfail++; break; }
+            var pd = JSON.parse(pr);
+            vals = vals.concat(pd.value || []);
+            next = pd['@odata.nextLink'] || null;
+        }
+        vals.sort(function (a, b) { return Date.parse(b.lastModifiedDateTime || 0) - Date.parse(a.lastModifiedDateTime || 0); });
+        var vsum = 0, rsum = 0;
         for (k = 1; k < vals.length; k++) {
             vsum += Number(vals[k].size) || 0;
+            if (k >= nkeep) { rsum += Number(vals[k].size) || 0; }
         }
         files[vidx[i]].versions_count = Math.max(vals.length - 1, 0);
         files[vidx[i]].versions_size = vsum;
+        files[vidx[i]].keep_excess_count = Math.max(vals.length - nkeep, 0);
+        files[vidx[i]].keep_reclaim = rsum;
         scannedSize += vsum;
+        reclaimScanned += rsum;
     }
     if (vfail > 0) {
         out.warning = 'Versoes nao lidas em ' + vfail + ' arquivo(s) (throttling ou permissao).';
@@ -254,6 +277,7 @@ try {
     out.versions_total = verTotal;
     out.versions_scanned = files.length;
     out.versions_scanned_size = scannedSize;
+    out.keep_reclaim_scanned = reclaimScanned;
 }
 catch (e) {
     out.error = String(e).substring(0, 500);
