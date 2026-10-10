@@ -1,0 +1,2625 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+  - uuid: a571c0d144b14fd4a87a9d9b2aa9fcd6
+    name: Templates/Applications
+  templates:
+  - uuid: b56019a2cdd04b35ad653aa5371ba88a
+    template: SharePoint Online by Microsoft Graph
+    name: SharePoint Online by Microsoft Graph
+    description: |-
+      Monitora o armazenamento do SharePoint Online pelo Microsoft Graph e pela API REST do SharePoint, sem agente e sem scripts externos.
+
+      Coleta: uso e cota do tenant, sites (relatórios de uso), bibliotecas e pastas, maiores arquivos e maiores históricos de versões (Pesquisa do Microsoft 365) e, opcionalmente, as lixeiras de 1º e 2º estágio de todos os sites. Somente leitura: nada é alterado no tenant.
+
+      Requisitos: App Registration no Entra ID com Microsoft Graph Reports.Read.All e Sites.Read.All (aplicativo) e consentimento do administrador. Para as lixeiras: certificado no app e SharePoint Sites.FullControl.All (aplicativo), com {$SPO.RB.ENABLED}=1. Saída HTTPS do Zabbix server/proxy para login.microsoftonline.com, graph.microsoft.com, *.sharepoint.com e *.office.com.
+
+      Configuração: crie um host sem interface, vincule o template e defina no host {$SPO.TENANT.ID}, {$SPO.CLIENT.ID}, {$SPO.CLIENT.SECRET} e {$SPO.TENANT.QUOTA.GB}. Documentação completa no repositório do projeto.
+
+      Os relatórios de uso do Microsoft 365 têm atraso de 24 a 48 h. Nome e e-mail do dono do site não são coletados.
+
+      Autor: Pablo Pires de Godoi Silva. Licença MIT.
+    vendor:
+      name: Pablo Pires de Godoi Silva
+      version: 7.4-1.0.0
+    groups:
+    - name: Templates/Applications
+    items:
+    - uuid: 93a8b5e9f55940c59b5da0b0937827c6
+      name: 'SPO: Coleta dos relatórios do Graph'
+      type: SCRIPT
+      key: spo.reports.get
+      delay: '{$SPO.GET_INTERVAL}'
+      history: '0'
+      value_type: TEXT
+      params: |
+        // Autor: Pablo Pires de Godoi Silva · Licença MIT
+        // SharePoint Online via Microsoft Graph Reports (somente leitura, Reports.Read.All de aplicativo)
+        // Parametros: tenant_id, client_id, client_secret, proxy, quota_gb
+        var p = JSON.parse(value);
+        var out = { error: '', warning: '' };
+
+        function newReq() {
+            var r = new HttpRequest();
+            if (p.proxy && p.proxy !== '') {
+                r.setProxy(p.proxy);
+            }
+            return r;
+        }
+
+        function headerValue(headers, name) {
+            var k;
+            for (k in headers) {
+                if (headers.hasOwnProperty(k) && k.toLowerCase() === name.toLowerCase()) {
+                    return headers[k];
+                }
+            }
+            return null;
+        }
+
+        function getToken() {
+            var r = newReq();
+            r.addHeader('Content-Type: application/x-www-form-urlencoded');
+            var body = 'client_id=' + encodeURIComponent(p.client_id) +
+                '&client_secret=' + encodeURIComponent(p.client_secret) +
+                '&scope=' + encodeURIComponent('https://graph.microsoft.com/.default') +
+                '&grant_type=client_credentials';
+            var resp = r.post('https://login.microsoftonline.com/' + encodeURIComponent(p.tenant_id) + '/oauth2/v2.0/token', body);
+            if (r.getStatus() !== 200) {
+                var msg = String(resp);
+                try { msg = JSON.parse(resp).error_description || msg; } catch (e) { }
+                throw 'Token: HTTP ' + r.getStatus() + ' ' + msg.substring(0, 300);
+            }
+            return JSON.parse(resp).access_token;
+        }
+
+        // O Graph responde 302 com Location para o CSV; trata os dois casos (com ou sem redirect automatico)
+        function getReportCsv(token, fn) {
+            var r = newReq();
+            r.addHeader('Authorization: Bearer ' + token);
+            var resp = r.get('https://graph.microsoft.com/v1.0/reports/' + fn);
+            var status = r.getStatus();
+            if (status === 301 || status === 302) {
+                var loc = headerValue(r.getHeaders(), 'Location');
+                if (!loc) {
+                    throw 'Relatorio ' + fn + ': redirect sem Location';
+                }
+                var d = newReq();
+                resp = d.get(loc);
+                status = d.getStatus();
+            }
+            if (status !== 200) {
+                throw 'Relatorio ' + fn + ': HTTP ' + status + ' ' + String(resp).substring(0, 300);
+            }
+            return String(resp);
+        }
+
+        // GET paginado no Graph (segue @odata.nextLink)
+        function graphGetAll(token, url, maxPages) {
+            var items = [], pages = 0;
+            while (url && pages < (maxPages || 50)) {
+                var r = newReq();
+                r.addHeader('Authorization: Bearer ' + token);
+                r.addHeader('Accept: application/json');
+                var resp = r.get(url);
+                if (r.getStatus() !== 200) {
+                    throw 'Graph ' + url.split('?')[0].replace('https://graph.microsoft.com/v1.0', '') + ': HTTP ' + r.getStatus() + ' ' + String(resp).substring(0, 200);
+                }
+                var j = JSON.parse(resp);
+                items = items.concat(j.value || []);
+                url = j['@odata.nextLink'] || null;
+                pages++;
+            }
+            return items;
+        }
+
+        // Mapa ID do conjunto de sites -> {url, name} (requer Sites.Read.All de aplicativo).
+        // O relatorio de uso nao traz mais a URL (problema conhecido da Microsoft, SP676147).
+        function siteMap(token) {
+            var map = {}, all = graphGetAll(token, 'https://graph.microsoft.com/v1.0/sites/getAllSites', 100), i, parts;
+            for (i = 0; i < all.length; i++) {
+                parts = String(all[i].id || '').split(',');
+                var info = { url: all[i].webUrl || '', name: all[i].displayName || '' };
+                if (parts.length >= 2) { map[parts[1].toLowerCase()] = info; }
+                if (parts.length >= 3 && !map[parts[2].toLowerCase()]) { map[parts[2].toLowerCase()] = info; }
+            }
+            return map;
+        }
+
+        function parseCsv(text) {
+            text = text.replace(/^\uFEFF/, '');
+            var rows = [], row = [], field = '', inQ = false, i, c;
+            for (i = 0; i < text.length; i++) {
+                c = text.charAt(i);
+                if (inQ) {
+                    if (c === '"') {
+                        if (text.charAt(i + 1) === '"') { field += '"'; i++; } else { inQ = false; }
+                    } else {
+                        field += c;
+                    }
+                } else if (c === '"') {
+                    inQ = true;
+                } else if (c === ',') {
+                    row.push(field); field = '';
+                } else if (c === '\n') {
+                    row.push(field); rows.push(row); row = []; field = '';
+                } else if (c !== '\r') {
+                    field += c;
+                }
+            }
+            if (field !== '' || row.length) {
+                row.push(field); rows.push(row);
+            }
+            if (rows.length === 0) {
+                return [];
+            }
+            var head = rows[0], res = [], j, o;
+            for (i = 1; i < rows.length; i++) {
+                if (rows[i].length < 2) {
+                    continue;
+                }
+                o = {};
+                for (j = 0; j < head.length; j++) {
+                    o[head[j]] = rows[i][j];
+                }
+                res.push(o);
+            }
+            return res;
+        }
+
+        function num(v) {
+            var n = Number(v);
+            return isNaN(n) ? 0 : n;
+        }
+
+        try {
+            var token = getToken();
+            var detail = parseCsv(getReportCsv(token, "getSharePointSiteUsageDetail(period='D7')"));
+            var storage = parseCsv(getReportCsv(token, "getSharePointSiteUsageStorage(period='D7')"));
+
+            var map = {};
+            try {
+                map = siteMap(token);
+            } catch (e) {
+                out.warning = 'Sem URL dos sites (verifique Sites.Read.All de aplicativo): ' + String(e).substring(0, 300);
+            }
+
+            // Sites ativos (nome e UPN do dono nao sao enviados ao Zabbix)
+            var sites = [], deletedCount = 0, deletedBytes = 0, sumUsed = 0, refresh = '', i;
+            for (i = 0; i < detail.length; i++) {
+                var s = detail[i];
+                var used = num(s['Storage Used (Byte)']);
+                var alloc = num(s['Storage Allocated (Byte)']);
+                if (!refresh) {
+                    refresh = s['Report Refresh Date'] || '';
+                }
+                if (String(s['Is Deleted']).toLowerCase() === 'true') {
+                    deletedCount++;
+                    deletedBytes += used;
+                    continue;
+                }
+                sumUsed += used;
+                var sid = String(s['Site Id'] || '');
+                var m = map[sid.toLowerCase()] || {};
+                sites.push({
+                    id: sid,
+                    url: s['Site URL'] || m.url || ('site-' + sid),
+                    name: m.name || '',
+                    template: s['Root Web Template'] || '',
+                    used: used,
+                    allocated: alloc,
+                    pused: alloc > 0 ? Math.round(used / alloc * 10000) / 100 : 0,
+                    files: num(s['File Count']),
+                    active_files: num(s['Active File Count']),
+                    last_activity: s['Last Activity Date'] || ''
+                });
+            }
+
+            // Tenant: dia mais recente do relatorio de armazenamento
+            var latest = '', tenantUsed = 0, hasAll = false;
+            for (i = 0; i < storage.length; i++) {
+                if ((storage[i]['Report Date'] || '') > latest) {
+                    latest = storage[i]['Report Date'];
+                }
+            }
+            for (i = 0; i < storage.length; i++) {
+                if (storage[i]['Report Date'] === latest && String(storage[i]['Site Type']).toLowerCase() === 'all') {
+                    tenantUsed = num(storage[i]['Storage Used (Byte)']);
+                    hasAll = true;
+                }
+            }
+            if (!hasAll) {
+                for (i = 0; i < storage.length; i++) {
+                    if (storage[i]['Report Date'] === latest) {
+                        tenantUsed += num(storage[i]['Storage Used (Byte)']);
+                    }
+                }
+            }
+            if (tenantUsed === 0) {
+                tenantUsed = sumUsed + deletedBytes;
+            }
+
+            var quota = num(p.quota_gb) * 1073741824;
+            out.tenant = { used: tenantUsed, report_date: latest, quota: quota };
+            if (quota > 0) {
+                out.tenant.pused = Math.round(tenantUsed / quota * 10000) / 100;
+                out.tenant.free = quota - tenantUsed;
+            }
+            out.report_refresh_date = refresh;
+            if (refresh) {
+                out.report_age_s = Math.max(0, Math.round((Date.now() - Date.parse(refresh + 'T00:00:00Z')) / 1000));
+            }
+            out.sites_count = sites.length;
+            out.sites_used = sumUsed;
+            out.sites_deleted_count = deletedCount;
+            out.sites_deleted_used = deletedBytes;
+            out.sites = sites;
+        }
+        catch (e) {
+            out.error = String(e).substring(0, 500);
+        }
+
+        return JSON.stringify(out);
+      timeout: '{$SPO.SCRIPT.TIMEOUT}'
+      description: Obtém token OAuth (client credentials) no Entra ID e baixa os relatórios getSharePointSiteUsageDetail e getSharePointSiteUsageStorage (D7) do Microsoft Graph. Requer Reports.Read.All e Sites.Read.All (aplicativo) com consentimento do administrador; Sites.Read.All resolve a URL dos sites, que o relatório não traz mais (problema conhecido da Microsoft, SP676147). Retorna JSON consumido pelos itens dependentes e pela descoberta de sites.
+      parameters:
+      - name: client_id
+        value: '{$SPO.CLIENT.ID}'
+      - name: client_secret
+        value: '{$SPO.CLIENT.SECRET}'
+      - name: proxy
+        value: '{$SPO.PROXY}'
+      - name: quota_gb
+        value: '{$SPO.TENANT.QUOTA.GB}'
+      - name: tenant_id
+        value: '{$SPO.TENANT.ID}'
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 5ee892c3ccf14519b1c962fe9f0e52d3
+      name: 'SPO: Erro na coleta'
+      type: DEPENDENT
+      key: spo.collect.error
+      history: 31d
+      value_type: TEXT
+      description: Mensagem de erro do script de coleta. Vazio quando a coleta foi bem-sucedida.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.error
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: ed58f8b4a0f14da78dc38caea8e62c29
+        expression: length(last(/SharePoint Online by Microsoft Graph/spo.collect.error))>0
+        name: 'SPO: Falha na coleta dos relatórios do Graph'
+        opdata: '{ITEM.LASTVALUE1}'
+        priority: WARNING
+        description: 'O script não conseguiu obter o token ou os relatórios. Veja o valor do item "SPO: Erro na coleta" (401/400 no token: ID, segredo ou expiração; 403 no relatório: consentimento de Reports.Read.All).'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 6d6b210d758841e2ab70613f483c00b8
+      name: 'SPO: Aviso da coleta'
+      type: DEPENDENT
+      key: spo.collect.warning
+      history: 31d
+      value_type: TEXT
+      description: 'Avisos que não impedem a coleta (ex.: sem permissão para resolver a URL dos sites). Vazio = sem avisos.'
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.warning
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: d2bff166fd6c4d4d96a6757f7d8f6747
+        expression: length(last(/SharePoint Online by Microsoft Graph/spo.collect.warning))>0
+        name: 'SPO: Aviso na coleta dos relatórios do Graph'
+        opdata: '{ITEM.LASTVALUE1}'
+        priority: INFO
+        description: 'Normalmente indica falta de Sites.Read.All (aplicativo): os sites aparecem como site-<ID> em vez da URL.'
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 526bee6f886b4e248bf0cfd440c0de44
+      name: 'SPO: Tenant – armazenamento usado'
+      type: DEPENDENT
+      key: spo.tenant.used
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Armazenamento total usado no SharePoint (relatório getSharePointSiteUsageStorage, dia mais recente). Os relatórios do Microsoft 365 têm atraso de 24 a 48 h.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.tenant.used
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+      triggers:
+      - uuid: 56ad825e5d634f4b8c8c67231da74513
+        expression: nodata(/SharePoint Online by Microsoft Graph/spo.tenant.used,{$SPO.NODATA.TIMEOUT})=1
+        name: 'SPO: Sem dados de armazenamento há {$SPO.NODATA.TIMEOUT}'
+        priority: WARNING
+        description: 'O item de armazenamento do tenant não recebe valores. Verifique o item "SPO: Erro na coleta", a saída de rede do container do Zabbix e a validade do segredo do app.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: b134529052fa4579aae5b5bc252c9d64
+      name: 'SPO: Tenant – cota total'
+      type: DEPENDENT
+      key: spo.tenant.quota
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Cota do tenant informada na macro {$SPO.TENANT.QUOTA.GB} (Get-SPOTenant StorageQuota / 1024).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.tenant.quota
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+      triggers:
+      - uuid: 9c3353f1055c42c5be675a01974c1f90
+        expression: last(/SharePoint Online by Microsoft Graph/spo.tenant.quota)=0
+        name: 'SPO: Macro {$SPO.TENANT.QUOTA.GB} não definida'
+        priority: INFO
+        description: Sem a cota, os itens de percentual e espaço livre do tenant não são calculados.
+        tags:
+        - tag: scope
+          value: notice
+    - uuid: 0941593823c04669a0ba5fe684e4994d
+      name: 'SPO: Tenant – % da cota usada'
+      type: DEPENDENT
+      key: spo.tenant.pused
+      history: 90d
+      value_type: FLOAT
+      trends: 365d
+      units: '%'
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.tenant.pused
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+      triggers:
+      - uuid: 9f05ef2c1554455a83be5d070d954e3f
+        expression: last(/SharePoint Online by Microsoft Graph/spo.tenant.pused)>={$SPO.TENANT.PUSED.CRIT}
+        name: 'SPO: Tenant acima da cota de armazenamento (sites em somente leitura)'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: HIGH
+        description: Acima da cota o SharePoint coloca os sites em somente leitura. Libere espaço (versões, lixeiras, sites excluídos) ou amplie a cota.
+        tags:
+        - tag: scope
+          value: capacity
+      - uuid: 9f2b36a0c9ed4e1a9b2e827c9e329c65
+        expression: last(/SharePoint Online by Microsoft Graph/spo.tenant.pused)>={$SPO.TENANT.PUSED.WARN}
+        name: 'SPO: Tenant acima de {$SPO.TENANT.PUSED.WARN}% da cota de armazenamento'
+        opdata: 'Uso: {ITEM.LASTVALUE1}'
+        priority: WARNING
+        dependencies:
+        - name: 'SPO: Tenant acima da cota de armazenamento (sites em somente leitura)'
+          expression: last(/SharePoint Online by Microsoft Graph/spo.tenant.pused)>={$SPO.TENANT.PUSED.CRIT}
+        tags:
+        - tag: scope
+          value: capacity
+    - uuid: 3b026340fd044bb88370c90c21582b98
+      name: 'SPO: Tenant – espaço livre'
+      type: DEPENDENT
+      key: spo.tenant.free
+      history: 90d
+      value_type: FLOAT
+      trends: 365d
+      units: B
+      description: Cota menos o uso. Negativo quando o tenant está acima da cota.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.tenant.free
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+    - uuid: fba5a84ce90b4cca9e16ea6c026c4d9f
+      name: 'SPO: Data do relatório'
+      type: DEPENDENT
+      key: spo.report.date
+      history: 31d
+      value_type: CHAR
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.report_refresh_date
+        error_handler: DISCARD_VALUE
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: health
+    - uuid: e99fdb56b4864788b04d38c048c6c516
+      name: 'SPO: Idade do relatório'
+      type: DEPENDENT
+      key: spo.report.age
+      history: 31d
+      value_type: UNSIGNED
+      trends: 365d
+      units: s
+      description: Tempo desde a data de atualização do relatório do Graph.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.report_age_s
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: dda7f477407c47f0a7061e9069d7fbf0
+        expression: last(/SharePoint Online by Microsoft Graph/spo.report.age)>{$SPO.REPORT.MAXAGE}
+        name: 'SPO: Relatório do Graph desatualizado'
+        opdata: 'Idade: {ITEM.LASTVALUE1}'
+        priority: WARNING
+        description: 'O Microsoft 365 não atualiza os relatórios de uso há mais tempo que o esperado (normal: 1 a 2 dias).'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 211107e839ad4e66829a036c4d3c35cd
+      name: 'SPO: Sites ativos'
+      type: DEPENDENT
+      key: spo.sites.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_count
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+    - uuid: 3ffc806b28e3485a8e8d26a2b0f35220
+      name: 'SPO: Sites ativos – armazenamento usado'
+      type: DEPENDENT
+      key: spo.sites.used
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_used
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+    - uuid: 5fdca65454a04c81a7f731d932170463
+      name: 'SPO: Sites excluídos (lixeira)'
+      type: DEPENDENT
+      key: spo.sites.deleted.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_deleted_count
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+    - uuid: 49da1ba9a3e34a5895b157c78fb6d003
+      name: 'SPO: Sites excluídos – armazenamento usado'
+      type: DEPENDENT
+      key: spo.sites.deleted.used
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Espaço ocupado por sites excluídos ainda na lixeira de sites (93 dias); continua contando na cota.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_deleted_used
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.reports.get
+      tags:
+      - tag: component
+        value: storage
+    - uuid: 8d008ca110b04fb1b7eb5aca831dbe2e
+      name: 'SPO: Coleta de bibliotecas e pastas'
+      type: SCRIPT
+      key: spo.folders.get
+      delay: '{$SPO.FOLDERS.INTERVAL}'
+      history: '0'
+      value_type: TEXT
+      params: |
+        // Autor: Pablo Pires de Godoi Silva · Licença MIT
+        // SharePoint Online - tamanho por biblioteca e por pasta de 1o nivel (Microsoft Graph, Sites.Read.All de aplicativo)
+        // Parametros: tenant_id, client_id, client_secret, proxy, sites (URLs separadas por virgula, detalhe por pasta),
+        //             max_folders, libraries_all (1 = bibliotecas de todos os sites), min_lib_mb
+        // Observacao: o tamanho do Graph considera a versao atual dos arquivos; o historico de versoes nao entra.
+        var p = JSON.parse(value);
+        var out = { error: '', warning: '', libraries: [], folders: [] };
+
+        function newReq() {
+            var r = new HttpRequest();
+            if (p.proxy && p.proxy !== '') {
+                r.setProxy(p.proxy);
+            }
+            return r;
+        }
+
+        function getToken() {
+            var r = newReq();
+            r.addHeader('Content-Type: application/x-www-form-urlencoded');
+            var body = 'client_id=' + encodeURIComponent(p.client_id) +
+                '&client_secret=' + encodeURIComponent(p.client_secret) +
+                '&scope=' + encodeURIComponent('https://graph.microsoft.com/.default') +
+                '&grant_type=client_credentials';
+            var resp = r.post('https://login.microsoftonline.com/' + encodeURIComponent(p.tenant_id) + '/oauth2/v2.0/token', body);
+            if (r.getStatus() !== 200) {
+                var msg = String(resp);
+                try { msg = JSON.parse(resp).error_description || msg; } catch (e) { }
+                throw 'Token: HTTP ' + r.getStatus() + ' ' + msg.substring(0, 300);
+            }
+            return JSON.parse(resp).access_token;
+        }
+
+        function graphGet(token, url) {
+            var r = newReq();
+            r.addHeader('Authorization: Bearer ' + token);
+            r.addHeader('Accept: application/json');
+            var resp = r.get(url);
+            if (r.getStatus() !== 200) {
+                throw 'Graph ' + url.replace('https://graph.microsoft.com/v1.0', '').split('?')[0] + ': HTTP ' + r.getStatus() + ' ' + String(resp).substring(0, 200);
+            }
+            return JSON.parse(resp);
+        }
+
+        function graphGetAll(token, url) {
+            var items = [], pages = 0, j;
+            while (url && pages < 50) {
+                j = graphGet(token, url);
+                items = items.concat(j.value || []);
+                url = j['@odata.nextLink'] || null;
+                pages++;
+            }
+            return items;
+        }
+
+        // Graph JSON batching: ate 20 requisicoes por chamada
+        function graphBatch(token, urls) {
+            var res = {}, i, j, chunk, body, r, resp, data;
+            for (i = 0; i < urls.length; i += 20) {
+                chunk = [];
+                for (j = i; j < Math.min(i + 20, urls.length); j++) {
+                    chunk.push({ id: String(j), method: 'GET', url: urls[j] });
+                }
+                r = newReq();
+                r.addHeader('Authorization: Bearer ' + token);
+                r.addHeader('Content-Type: application/json');
+                resp = r.post('https://graph.microsoft.com/v1.0/$batch', JSON.stringify({ requests: chunk }));
+                if (r.getStatus() !== 200) {
+                    throw 'Graph $batch: HTTP ' + r.getStatus() + ' ' + String(resp).substring(0, 200);
+                }
+                data = JSON.parse(resp).responses || [];
+                for (j = 0; j < data.length; j++) {
+                    res[data[j].id] = data[j];
+                }
+            }
+            return res;
+        }
+
+        // Caminho curto do site: "/sites/Financeiro" ou "(raiz)"
+        function sitePath(webUrl) {
+            var p = String(webUrl || '').replace(/^https?:\/\/[^\/]+/i, '').replace(/\/+$/, '');
+            return p === '' ? '(raiz)' : p;
+        }
+
+        function ts(v) {
+            var t = Date.parse(v || '');
+            return isNaN(t) ? 0 : Math.round(t / 1000);
+        }
+
+        try {
+            var token = getToken();
+            var seen = {};
+            var minLib = (Number(p.min_lib_mb) || 0) * 1048576;
+
+            if (String(p.libraries_all) === '1') {
+                var all = graphGetAll(token, 'https://graph.microsoft.com/v1.0/sites/getAllSites'), sitesAll = [], a, b;
+                for (a = 0; a < all.length; a++) {
+                    if (!all[a].isPersonalSite && all[a].id) {
+                        sitesAll.push(all[a]);
+                    }
+                }
+                var urlsDrives = [];
+                for (a = 0; a < sitesAll.length; a++) {
+                    urlsDrives.push('/sites/' + encodeURIComponent(sitesAll[a].id) + '/drives?$select=id,name');
+                }
+                var resDrives = graphBatch(token, urlsDrives), driveList = [], skipped = 0;
+                for (a = 0; a < sitesAll.length; a++) {
+                    var rd = resDrives[String(a)];
+                    if (!rd || rd.status !== 200 || !rd.body) {
+                        skipped++;
+                        continue;
+                    }
+                    for (b = 0; b < (rd.body.value || []).length; b++) {
+                        driveList.push({ site: sitesAll[a], drive: rd.body.value[b] });
+                    }
+                }
+                var urlsRoot = [];
+                for (a = 0; a < driveList.length; a++) {
+                    urlsRoot.push('/drives/' + encodeURIComponent(driveList[a].drive.id) + '/root?$select=size,folder,lastModifiedDateTime');
+                }
+                var resRoot = graphBatch(token, urlsRoot), rootSkipped = 0;
+                for (a = 0; a < driveList.length; a++) {
+                    var rr = resRoot[String(a)];
+                    if (!rr || rr.status !== 200 || !rr.body) {
+                        rootSkipped++;
+                        continue;
+                    }
+                    var sz = Number(rr.body.size) || 0;
+                    if (sz < minLib || seen[driveList[a].drive.id]) {
+                        continue;
+                    }
+                    seen[driveList[a].drive.id] = true;
+                    out.libraries.push({
+                        id: driveList[a].drive.id,
+                        site: driveList[a].site.webUrl,
+                        name: driveList[a].drive.name,
+                        path: sitePath(driveList[a].site.webUrl) + ' / ' + driveList[a].drive.name,
+                        size: sz,
+                        items: rr.body.folder ? Number(rr.body.folder.childCount) || 0 : 0,
+                        modified: ts(rr.body.lastModifiedDateTime)
+                    });
+                }
+                out.sites_scanned = sitesAll.length;
+                out.sites_skipped = skipped;
+                if (skipped + rootSkipped > 0) {
+                    out.warning = skipped + ' site(s) e ' + rootSkipped + ' biblioteca(s) sem leitura (sem permissao, arquivados ou throttling).';
+                }
+            }
+
+            var list = String(p.sites || '').split(',');
+            var maxFolders = Number(p.max_folders) || 200;
+            var i, j, k;
+            for (i = 0; i < list.length; i++) {
+                var siteUrl = list[i].replace(/^\s+|\s+$/g, '');
+                if (siteUrl === '') {
+                    continue;
+                }
+                var noProto = siteUrl.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+                var slash = noProto.indexOf('/');
+                var host = slash === -1 ? noProto : noProto.substring(0, slash);
+                var path = slash === -1 ? '' : noProto.substring(slash);
+                var site = graphGet(token, 'https://graph.microsoft.com/v1.0/sites/' + host + (path ? ':' + encodeURI(path) : '') + '?$select=id,webUrl,displayName');
+                var drives = graphGetAll(token, 'https://graph.microsoft.com/v1.0/sites/' + encodeURIComponent(site.id) + '/drives?$select=id,name,webUrl');
+                for (j = 0; j < drives.length; j++) {
+                    var d = drives[j];
+                    if (!seen[d.id]) {
+                        var root = graphGet(token, 'https://graph.microsoft.com/v1.0/drives/' + encodeURIComponent(d.id) + '/root?$select=size,folder,lastModifiedDateTime');
+                        seen[d.id] = true;
+                        out.libraries.push({
+                            id: d.id,
+                            site: site.webUrl,
+                            name: d.name,
+                            path: sitePath(site.webUrl) + ' / ' + d.name,
+                            size: Number(root.size) || 0,
+                            items: root.folder ? Number(root.folder.childCount) || 0 : 0,
+                            modified: ts(root.lastModifiedDateTime)
+                        });
+                    }
+                    var children = graphGetAll(token, 'https://graph.microsoft.com/v1.0/drives/' + encodeURIComponent(d.id) + '/root/children?$select=id,name,size,folder,createdDateTime,lastModifiedDateTime&$top=999');
+                    for (k = 0; k < children.length; k++) {
+                        var c = children[k];
+                        if (!c.folder) {
+                            continue;
+                        }
+                        out.folders.push({
+                            id: d.id + '|' + c.id,
+                            site: site.webUrl,
+                            library: d.name,
+                            path: d.name + '/' + c.name,
+                            size: Number(c.size) || 0,
+                            items: Number(c.folder.childCount) || 0,
+                            created: ts(c.createdDateTime),
+                            modified: ts(c.lastModifiedDateTime)
+                        });
+                    }
+                }
+            }
+            out.folders.sort(function (a, b) { return b.size - a.size; });
+            out.folders_total = out.folders.length;
+            if (out.folders.length > maxFolders) {
+                out.folders = out.folders.slice(0, maxFolders);
+            }
+            var total = 0;
+            for (i = 0; i < out.libraries.length; i++) {
+                total += out.libraries[i].size;
+            }
+            out.libraries_size = total;
+            out.libraries.sort(function (x, y) { return y.size - x.size; });
+            out.libraries_count = out.libraries.length;
+        }
+        catch (e) {
+            out.error = String(e).substring(0, 500);
+        }
+
+        return JSON.stringify(out);
+      timeout: '{$SPO.FOLDERS.TIMEOUT}'
+      description: Lê pelo Microsoft Graph (Sites.Read.All de aplicativo) o tamanho das bibliotecas de todos os sites ({$SPO.LIBRARIES.ALL}=1, a partir de {$SPO.LIBRARIES.MIN_MB} MB, via $batch) e o detalhe por pasta de 1º nível dos sites em {$SPO.FOLDERS.SITES}. Dados quase em tempo real, sem o atraso dos relatórios. O tamanho considera a versão atual dos arquivos; o histórico de versões não entra.
+      parameters:
+      - name: client_id
+        value: '{$SPO.CLIENT.ID}'
+      - name: client_secret
+        value: '{$SPO.CLIENT.SECRET}'
+      - name: libraries_all
+        value: '{$SPO.LIBRARIES.ALL}'
+      - name: max_folders
+        value: '{$SPO.FOLDERS.MAX}'
+      - name: min_lib_mb
+        value: '{$SPO.LIBRARIES.MIN_MB}'
+      - name: proxy
+        value: '{$SPO.PROXY}'
+      - name: sites
+        value: '{$SPO.FOLDERS.SITES}'
+      - name: tenant_id
+        value: '{$SPO.TENANT.ID}'
+      tags:
+      - tag: component
+        value: raw
+    - uuid: c548ca8a7ce0404d997f1d4d4d9179a6
+      name: 'SPO: Erro na coleta de pastas'
+      type: DEPENDENT
+      key: spo.folders.error
+      history: 31d
+      value_type: TEXT
+      description: Mensagem de erro da coleta de bibliotecas e pastas. Vazio = OK.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.error
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: 254fb3c240694193863098ce2493f8bb
+        expression: length(last(/SharePoint Online by Microsoft Graph/spo.folders.error))>0
+        name: 'SPO: Falha na coleta de bibliotecas e pastas'
+        opdata: '{ITEM.LASTVALUE1}'
+        priority: WARNING
+        description: '403: falta Sites.Read.All (aplicativo) com consentimento. 404: URL inválida em {$SPO.FOLDERS.SITES}.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 04c76c70fede443391bd1cc0657c06d6
+      name: 'SPO: Aviso da coleta de pastas'
+      type: DEPENDENT
+      key: spo.folders.warning
+      history: 31d
+      value_type: TEXT
+      description: Sites ou bibliotecas que não puderam ser lidos (sem permissão, arquivados ou throttling). Vazio = sem avisos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.warning
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: health
+    - uuid: c9004e2a0cc3498983ed1047dd314b1d
+      name: 'SPO: Sites varridos para bibliotecas'
+      type: DEPENDENT
+      key: spo.libraries.sites_scanned
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_scanned
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: folders
+    - uuid: d17db83324724c17aa9a20c0544795b5
+      name: 'SPO: Bibliotecas monitoradas – tamanho total'
+      type: DEPENDENT
+      key: spo.libraries.size
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma das bibliotecas dos sites em {$SPO.FOLDERS.SITES} (versão atual dos arquivos).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.libraries_size
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: folders
+    - uuid: 5e3af525a1d24e2fa255c8713ed6fdef
+      name: 'SPO: Bibliotecas monitoradas'
+      type: DEPENDENT
+      key: spo.libraries.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.libraries_count
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: folders
+    - uuid: 3f12d9a589e846eb835758bc466c1d1b
+      name: 'SPO: Pastas de 1º nível encontradas'
+      type: DEPENDENT
+      key: spo.folders.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Total de pastas de 1º nível; a descoberta cria itens só para as {$SPO.FOLDERS.MAX} maiores.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.folders_total
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.folders.get
+      tags:
+      - tag: component
+        value: folders
+    - uuid: ac94d31f1e3a4912863c7a244ac91c71
+      name: 'SPO: Pesquisa dos maiores arquivos'
+      type: SCRIPT
+      key: spo.bigfiles.get
+      delay: '{$SPO.BIGFILES.INTERVAL}'
+      history: '0'
+      value_type: TEXT
+      params: |
+        // Autor: Pablo Pires de Godoi Silva · Licença MIT
+        // SharePoint Online - maiores arquivos e maiores historicos de versoes de todos os sites (site, pasta, versoes)
+        // (Pesquisa do Microsoft 365 + versoes via Graph $batch). Permissao: Sites.Read.All (aplicativo).
+        // Parametros: tenant_id, client_id, client_secret, proxy, min_mb, max, include_onedrive (1/0), region (vazio = automatico),
+        //             versions_min_mb, versions_scan (quantos dos maiores arquivos tem as versoes medidas)
+        var p = JSON.parse(value);
+        var out = { error: '', warning: '', region: '', total: 0, files: [] };
+        // Parametros efetivos (valores das macros), publicados para o Grafana exibir nas descricoes
+        out.config = {
+            min_mb: Number(p.min_mb) || 200,
+            max: Math.min(Math.max(Number(p.max) || 50, 1), 500),
+            versions_min_mb: Number(p.versions_min_mb) || 50,
+            versions_scan: 0
+        };
+        out.config.versions_scan = Math.min(Math.max(Number(p.versions_scan) || 500, out.config.max), 2000);
+
+        function newReq() {
+            var r = new HttpRequest();
+            if (p.proxy && p.proxy !== '') {
+                r.setProxy(p.proxy);
+            }
+            return r;
+        }
+
+        function getToken() {
+            var r = newReq();
+            r.addHeader('Content-Type: application/x-www-form-urlencoded');
+            var body = 'client_id=' + encodeURIComponent(p.client_id) +
+                '&client_secret=' + encodeURIComponent(p.client_secret) +
+                '&scope=' + encodeURIComponent('https://graph.microsoft.com/.default') +
+                '&grant_type=client_credentials';
+            var resp = r.post('https://login.microsoftonline.com/' + encodeURIComponent(p.tenant_id) + '/oauth2/v2.0/token', body);
+            if (r.getStatus() !== 200) {
+                var msg = String(resp);
+                try { msg = JSON.parse(resp).error_description || msg; } catch (e) { }
+                throw 'Token: HTTP ' + r.getStatus() + ' ' + msg.substring(0, 300);
+            }
+            return JSON.parse(resp).access_token;
+        }
+
+        // FNV-1a 32 bits (dois passes) para gerar um ID curto e estavel a partir da URL
+        function hash(s) {
+            var h1 = 0x811c9dc5, h2 = 0x01000193, i, c;
+            for (i = 0; i < s.length; i++) {
+                c = s.charCodeAt(i);
+                h1 ^= c; h1 = (h1 * 16777619) >>> 0;
+                h2 ^= (c + i) & 0xffff; h2 = (h2 * 16777619) >>> 0;
+            }
+            return ('00000000' + h1.toString(16)).slice(-8) + ('00000000' + h2.toString(16)).slice(-8);
+        }
+
+        // URL pronta para link: cada trecho do caminho codificado (espaco, acento, #, %, ? e & nao quebram o link)
+        function linkUrl(url) {
+            var m = String(url || '').match(/^(https?:\/\/[^\/]+)(\/.*)?$/i);
+            if (!m) { return String(url || ''); }
+            var parts = (m[2] || '').split('/'), i, seg;
+            for (i = 0; i < parts.length; i++) {
+                seg = parts[i];
+                try { seg = decodeURIComponent(seg); } catch (e) { }
+                parts[i] = encodeURIComponent(seg);
+            }
+            return m[1] + parts.join('/');
+        }
+
+        function splitUrl(url) {
+            var s = String(url || '');
+            try { s = decodeURIComponent(s); } catch (e) { }
+            s = s.replace(/^https?:\/\/[^\/]+/i, '');
+            var m = s.match(/^\/(sites|teams|personal)\/([^\/]+)\/(.*)$/i), site, rest;
+            if (m) { site = '/' + m[1] + '/' + m[2]; rest = m[3]; } else { site = '(raiz)'; rest = s.replace(/^\/+/, ''); }
+            var parts = rest.split('/');
+            parts.pop();
+            return { site: site, folder: parts.join('/') };
+        }
+
+        // Rotulo do item: "arquivo | site | pasta" com no maximo 200 caracteres (nome de item do Zabbix: 255)
+        function label(name, site, folder) {
+            var base = name + ' | ' + site + ' | ';
+            var room = 200 - base.length;
+            if (room < 10) { return (base + folder).substring(0, 200); }
+            if (folder.length > room) { folder = '...' + folder.slice(-(room - 3)); }
+            return base + folder;
+        }
+
+        function graphBatch(token, urls) {
+            var res = {}, i, j, chunk, r, resp, data;
+            for (i = 0; i < urls.length; i += 20) {
+                chunk = [];
+                for (j = i; j < Math.min(i + 20, urls.length); j++) {
+                    chunk.push({ id: String(j), method: 'GET', url: urls[j] });
+                }
+                r = newReq();
+                r.addHeader('Authorization: Bearer ' + token);
+                r.addHeader('Content-Type: application/json');
+                resp = r.post('https://graph.microsoft.com/v1.0/$batch', JSON.stringify({ requests: chunk }));
+                if (r.getStatus() !== 200) {
+                    throw 'Graph $batch: HTTP ' + r.getStatus() + ' ' + String(resp).substring(0, 200);
+                }
+                data = JSON.parse(resp).responses || [];
+                for (j = 0; j < data.length; j++) {
+                    res[data[j].id] = data[j];
+                }
+            }
+            return res;
+        }
+
+        function shortPath(url, host) {
+            var s = String(url || '');
+            try { s = decodeURIComponent(s); } catch (e) { }
+            s = s.replace(/^https?:\/\/[^\/]+/i, '');
+            if (s.length > 180) {
+                s = '...' + s.slice(-177);
+            }
+            return s;
+        }
+
+        try {
+            var token = getToken();
+
+            // site raiz: host do SharePoint e regiao (dataLocationCode)
+            var rr = newReq();
+            rr.addHeader('Authorization: Bearer ' + token);
+            var rootResp = rr.get('https://graph.microsoft.com/v1.0/sites/root?$select=webUrl,siteCollection');
+            if (rr.getStatus() !== 200) {
+                throw 'Graph /sites/root: HTTP ' + rr.getStatus() + ' ' + String(rootResp).substring(0, 200);
+            }
+            var root = JSON.parse(rootResp);
+            var rootUrl = String(root.webUrl || '').replace(/\/+$/, '');
+            var region = p.region || (root.siteCollection && root.siteCollection.dataLocationCode) || 'NAM';
+
+            var minBytes = out.config.min_mb * 1048576;
+            var max = out.config.max;
+            var vMinBytes = out.config.versions_min_mb * 1048576;
+            var scan = out.config.versions_scan;
+            var pathFilter = (String(p.include_onedrive) !== '1' && rootUrl) ? ' path:"' + rootUrl + '/"' : '';
+
+            // Uma pagina da Pesquisa do Microsoft 365, ordenada por tamanho (desc)
+            function search(kql, from, size) {
+                var attempt, r, resp;
+                for (attempt = 0; attempt < 2; attempt++) {
+                    r = newReq();
+                    r.addHeader('Authorization: Bearer ' + token);
+                    r.addHeader('Content-Type: application/json');
+                    resp = r.post('https://graph.microsoft.com/v1.0/search/query', JSON.stringify({
+                        requests: [{
+                            entityTypes: ['driveItem'],
+                            query: { queryString: kql },
+                            region: region,
+                            from: from,
+                            size: size,
+                            fields: ['id', 'name', 'size', 'lastModifiedDateTime', 'webUrl', 'parentReference'],
+                            sortProperties: [{ name: 'size', isDescending: true }]
+                        }]
+                    }));
+                    if (r.getStatus() === 200) {
+                        var c = (JSON.parse(resp).value || [{}])[0].hitsContainers || [];
+                        return {
+                            total: c.length ? Number(c[0].total) || 0 : 0,
+                            more: c.length ? !!c[0].moreResultsAvailable : false,
+                            hits: c.length ? (c[0].hits || []) : []
+                        };
+                    }
+                    // regiao invalida: a propria resposta informa a regiao valida
+                    var m = String(resp).match(/Only valid regions are ([A-Z]{3})/);
+                    if (r.getStatus() === 400 && m && attempt === 0) {
+                        region = m[1];
+                        continue;
+                    }
+                    throw 'Graph search: HTTP ' + r.getStatus() + ' ' + String(resp).substring(0, 300);
+                }
+                throw 'Graph search: regiao invalida';
+            }
+
+            // 1) Maiores arquivos acima de min_mb (lista por tamanho e total de arquivos acima do minimo)
+            var s1 = search('IsDocument:true Size>' + minBytes + pathFilter, 0, max);
+            out.total = s1.total;
+            out.region = region;
+
+            // 2) Universo para medir versoes: os "scan" maiores arquivos acima de versions_min_mb
+            var pool = [], seen = {}, i, page, from = 0;
+            function addHit(h) {
+                var f = h.resource || {};
+                var url = String(f.webUrl || '');
+                var id = hash(url);
+                if (!url || seen[id]) { return; }
+                seen[id] = true;
+                pool.push(f);
+            }
+            for (i = 0; i < s1.hits.length; i++) { addHit(s1.hits[i]); }
+            while (from < scan) {
+                page = search('IsDocument:true Size>' + vMinBytes + pathFilter, from, Math.min(200, scan - from));
+                for (i = 0; i < page.hits.length; i++) { addHit(page.hits[i]); }
+                if (!page.more || page.hits.length === 0) { break; }
+                from += page.hits.length;
+            }
+
+            var files = [], vurls = [], vidx = [];
+            for (i = 0; i < pool.length; i++) {
+                var f = pool[i];
+                var url = String(f.webUrl || '');
+                var t = Date.parse(f.lastModifiedDateTime || '');
+                var loc = splitUrl(url);
+                files.push({
+                    id: hash(url),
+                    name: String(f.name || ''),
+                    site: loc.site,
+                    folder: loc.folder,
+                    label: label(String(f.name || ''), loc.site, loc.folder),
+                    size: Number(f.size) || 0,
+                    modified: isNaN(t) ? 0 : Math.round(t / 1000),
+                    versions_count: 0,
+                    versions_size: 0,
+                    url: linkUrl(url),
+                    folder_url: linkUrl(url.substring(0, url.lastIndexOf('/')))
+                });
+                if (f.id && f.parentReference && f.parentReference.driveId) {
+                    vurls.push('/drives/' + encodeURIComponent(f.parentReference.driveId) + '/items/' + encodeURIComponent(f.id) + '/versions?$select=id,size');
+                    vidx.push(files.length - 1);
+                }
+            }
+
+            // Versoes: a primeira da lista e a atual; as demais sao o historico que ocupa a cota
+            var vres = graphBatch(token, vurls), vfail = 0, scannedSize = 0;
+            for (i = 0; i < vidx.length; i++) {
+                var vr = vres[String(i)];
+                if (!vr || vr.status !== 200 || !vr.body) {
+                    vfail++;
+                    continue;
+                }
+                var vals = vr.body.value || [], vsum = 0, k;
+                for (k = 1; k < vals.length; k++) {
+                    vsum += Number(vals[k].size) || 0;
+                }
+                files[vidx[i]].versions_count = Math.max(vals.length - 1, 0);
+                files[vidx[i]].versions_size = vsum;
+                scannedSize += vsum;
+            }
+            if (vfail > 0) {
+                out.warning = 'Versoes nao lidas em ' + vfail + ' arquivo(s) (throttling ou permissao).';
+            }
+
+            // Saida: uniao dos "max" maiores por tamanho e dos "max" maiores por versoes antigas
+            var bySize = files.slice().sort(function (a, b) { return b.size - a.size; }).slice(0, max);
+            var byVer = files.filter(function (x) { return x.versions_size > 0; })
+                .sort(function (a, b) { return b.versions_size - a.versions_size; }).slice(0, max);
+            var keep = {}, sizeTotal = 0, verTotal = 0;
+            for (i = 0; i < bySize.length; i++) { keep[bySize[i].id] = bySize[i]; sizeTotal += bySize[i].size; }
+            for (i = 0; i < byVer.length; i++) { keep[byVer[i].id] = byVer[i]; verTotal += byVer[i].versions_size; }
+            for (i in keep) {
+                if (keep.hasOwnProperty(i)) { out.files.push(keep[i]); }
+            }
+            out.count = out.files.length;
+            out.size_total = sizeTotal;
+            out.versions_total = verTotal;
+            out.versions_scanned = files.length;
+            out.versions_scanned_size = scannedSize;
+        }
+        catch (e) {
+            out.error = String(e).substring(0, 500);
+        }
+
+        return JSON.stringify(out);
+      timeout: '{$SPO.BIGFILES.TIMEOUT}'
+      description: Usa a Pesquisa do Microsoft 365 (Graph /search/query, driveItem, ordenado por tamanho) em todos os sites. 1) Lista os {$SPO.BIGFILES.MAX} maiores arquivos acima de {$SPO.BIGFILES.MIN_MB} MB. 2) Mede pelo Graph ($batch) as versões antigas dos {$SPO.VERSIONS.SCAN} maiores arquivos acima de {$SPO.VERSIONS.MIN_MB} MB e separa os {$SPO.BIGFILES.MAX} com maior histórico de versões. A saída é a união das duas listas, com site e pasta. Sites.Read.All de aplicativo. O índice de pesquisa pode ter atraso de minutos a horas. Somente leitura.
+      parameters:
+      - name: client_id
+        value: '{$SPO.CLIENT.ID}'
+      - name: client_secret
+        value: '{$SPO.CLIENT.SECRET}'
+      - name: include_onedrive
+        value: '{$SPO.BIGFILES.ONEDRIVE}'
+      - name: max
+        value: '{$SPO.BIGFILES.MAX}'
+      - name: min_mb
+        value: '{$SPO.BIGFILES.MIN_MB}'
+      - name: proxy
+        value: '{$SPO.PROXY}'
+      - name: region
+        value: '{$SPO.SEARCH.REGION}'
+      - name: tenant_id
+        value: '{$SPO.TENANT.ID}'
+      - name: versions_min_mb
+        value: '{$SPO.VERSIONS.MIN_MB}'
+      - name: versions_scan
+        value: '{$SPO.VERSIONS.SCAN}'
+      tags:
+      - tag: component
+        value: raw
+    - uuid: a0c59cff49d640679a961bc4dfe5ac56
+      name: 'SPO: Erro na pesquisa dos maiores arquivos'
+      type: DEPENDENT
+      key: spo.bigfiles.error
+      history: 31d
+      value_type: TEXT
+      description: Mensagem de erro da pesquisa. Vazio = OK.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.error
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: 6aad0df8c9b1413491bd838663df542d
+        expression: length(last(/SharePoint Online by Microsoft Graph/spo.bigfiles.error))>0
+        name: 'SPO: Falha na pesquisa dos maiores arquivos'
+        opdata: '{ITEM.LASTVALUE1}'
+        priority: WARNING
+        description: '403: falta Sites.Read.All (aplicativo). 400 com "region": ajuste {$SPO.SEARCH.REGION}.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: bb71c2f63a8c41f291d108a84a5ce1c1
+      name: 'SPO: Aviso da pesquisa dos maiores arquivos'
+      type: DEPENDENT
+      key: spo.bigfiles.warning
+      history: 31d
+      value_type: TEXT
+      description: Arquivos cujas versões não puderam ser lidas (throttling ou permissão). Vazio = sem avisos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.warning
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: health
+    - uuid: d013cf6132bd41fa81458129fc37409e
+      name: 'SPO: Arquivos acima do tamanho mínimo'
+      type: DEPENDENT
+      key: spo.bigfiles.total
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Quantos arquivos acima de {$SPO.BIGFILES.MIN_MB} MB existem nos sites (total da pesquisa).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.total
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
+    - uuid: df87815ab5a8458cbf3f89117618b92f
+      name: 'SPO: Maiores arquivos – tamanho somado'
+      type: DEPENDENT
+      key: spo.bigfiles.size_total
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma do tamanho atual dos {$SPO.BIGFILES.MAX} maiores arquivos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.size_total
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
+    - uuid: 19cf52a3a87a4300beb4e628494fc327
+      name: 'SPO: Maiores históricos de versões – somados'
+      type: DEPENDENT
+      key: spo.bigfiles.versions_total
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma das versões antigas dos {$SPO.BIGFILES.MAX} arquivos com maior histórico de versões (espaço que a limpeza de versões desses arquivos liberaria).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.versions_total
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
+    - uuid: 05f8b202c9f044dd8dd6004715a89302
+      name: 'SPO: Versões antigas – arquivos analisados'
+      type: DEPENDENT
+      key: spo.bigfiles.versions_scanned
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Quantos arquivos tiveram as versões medidas (os {$SPO.VERSIONS.SCAN} maiores acima de {$SPO.VERSIONS.MIN_MB} MB).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.versions_scanned
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
+    - uuid: 9d9ab593f7444345add6ba6cc05c04ae
+      name: 'SPO: Versões antigas – total nos arquivos analisados'
+      type: DEPENDENT
+      key: spo.bigfiles.versions_scanned_size
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma das versões antigas de todos os arquivos analisados.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.versions_scanned_size
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: bigfiles
+    - uuid: 0fb9f4e406c44b858c97c8b977158756
+      name: 'SPO: Região da pesquisa'
+      type: DEPENDENT
+      key: spo.bigfiles.region
+      history: 31d
+      value_type: CHAR
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.region
+        error_handler: DISCARD_VALUE
+      - type: DISCARD_UNCHANGED_HEARTBEAT
+        parameters:
+        - 1d
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: health
+    - uuid: a90e6bcab35e4115982a545cf302e7d8
+      name: 'SPO: Config – tamanho mínimo dos maiores arquivos (MB)'
+      type: DEPENDENT
+      key: spo.config.bigfiles.min_mb
+      history: 1d
+      value_type: UNSIGNED
+      trends: '0'
+      description: Valor efetivo de {$SPO.BIGFILES.MIN_MB}. Usado pelo painel do Grafana.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.config.min_mb
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: config
+    - uuid: 2aa13735ab1a41ca981f50e788155a69
+      name: 'SPO: Config – quantidade de maiores arquivos'
+      type: DEPENDENT
+      key: spo.config.bigfiles.max
+      history: 1d
+      value_type: UNSIGNED
+      trends: '0'
+      description: Valor efetivo de {$SPO.BIGFILES.MAX}. Usado pelo painel do Grafana.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.config.max
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: config
+    - uuid: 7fa4ff0457154a0298186468fe90dbeb
+      name: 'SPO: Config – tamanho mínimo na análise de versões (MB)'
+      type: DEPENDENT
+      key: spo.config.versions.min_mb
+      history: 1d
+      value_type: UNSIGNED
+      trends: '0'
+      description: Valor efetivo de {$SPO.VERSIONS.MIN_MB}. Usado pelo painel do Grafana.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.config.versions_min_mb
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: config
+    - uuid: 294c63a300964a50b4ac455f471e3631
+      name: 'SPO: Config – arquivos analisados nas versões'
+      type: DEPENDENT
+      key: spo.config.versions.scan
+      history: 1d
+      value_type: UNSIGNED
+      trends: '0'
+      description: Valor efetivo de {$SPO.VERSIONS.SCAN}. Usado pelo painel do Grafana.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.config.versions_scan
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.bigfiles.get
+      tags:
+      - tag: component
+        value: config
+    - uuid: 7bded62017a6488086c6825a82170682
+      name: 'SPO: Leitura das lixeiras'
+      type: SCRIPT
+      key: spo.recyclebin.get
+      delay: '{$SPO.RB.INTERVAL}'
+      history: '0'
+      value_type: TEXT
+      params: |
+        // Autor: Pablo Pires de Godoi Silva · Licença MIT
+        // SharePoint Online - lixeiras de 1º e 2º estágio de todos os sites (quantidade e tamanho). SOMENTE LEITURA.
+        // Sites: Graph /sites/getAllSites (app do Zabbix, segredo). Lixeiras: API REST do SharePoint
+        // (/_api/site/RecycleBin), que exige token de aplicativo obtido com CERTIFICADO (JWT RS256 assinado com sign()).
+        // Parametros: enabled, tenant_id, client_id, client_secret, proxy, rb_client_id (vazio = client_id), rb_thumbprint, rb_private_key, site_min_mb
+        // Sem certificado tenta o segredo do cliente e, se o SharePoint recusar (401), explica o motivo no item de erro.
+        var p = JSON.parse(value);
+        var out = {
+            error: '', warning: '', collected: Math.round(Date.now() / 1000),
+            sites_total: 0, sites_read: 0, sites_partial: 0, sites_error: 0,
+            stage1: { count: 0, size: 0 }, stage2: { count: 0, size: 0 }, sites: []
+        };
+
+        function newReq() {
+            var r = new HttpRequest();
+            if (p.proxy && p.proxy !== '') {
+                r.setProxy(p.proxy);
+            }
+            return r;
+        }
+
+        // ---------- codificacao ----------
+        var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        function b64urlBytes(bytes) {
+            var s = '', i, n;
+            for (i = 0; i < bytes.length; i += 3) {
+                n = (bytes[i] << 16) | ((i + 1 < bytes.length ? bytes[i + 1] : 0) << 8) | (i + 2 < bytes.length ? bytes[i + 2] : 0);
+                s += B64.charAt((n >> 18) & 63) + B64.charAt((n >> 12) & 63);
+                s += i + 1 < bytes.length ? B64.charAt((n >> 6) & 63) : '';
+                s += i + 2 < bytes.length ? B64.charAt(n & 63) : '';
+            }
+            return s.replace(/\+/g, '-').replace(/\//g, '_');
+        }
+        function hexToBytes(hex) {
+            var b = [], i;
+            hex = String(hex).replace(/[^0-9a-fA-F]/g, '');
+            for (i = 0; i + 1 < hex.length; i += 2) {
+                b.push(parseInt(hex.substr(i, 2), 16));
+            }
+            return b;
+        }
+        function asciiBytes(s) {
+            var b = [], i;
+            for (i = 0; i < s.length; i++) {
+                b.push(s.charCodeAt(i) & 255);
+            }
+            return b;
+        }
+        function randomHex(n) {
+            var s = '', i;
+            for (i = 0; i < n; i++) {
+                s += Math.floor(Math.random() * 16).toString(16);
+            }
+            return s;
+        }
+
+        // ---------- tokens ----------
+        function tokenRequest(body, what) {
+            var r = newReq();
+            r.addHeader('Content-Type: application/x-www-form-urlencoded');
+            var resp = r.post('https://login.microsoftonline.com/' + encodeURIComponent(p.tenant_id) + '/oauth2/v2.0/token', body);
+            if (r.getStatus() !== 200) {
+                var msg = String(resp);
+                try { msg = JSON.parse(resp).error_description || msg; } catch (e) { }
+                throw 'Token ' + what + ': HTTP ' + r.getStatus() + ' ' + msg.substring(0, 300);
+            }
+            return JSON.parse(resp).access_token;
+        }
+
+        function graphToken() {
+            return tokenRequest('client_id=' + encodeURIComponent(p.client_id) +
+                '&client_secret=' + encodeURIComponent(p.client_secret) +
+                '&scope=' + encodeURIComponent('https://graph.microsoft.com/.default') +
+                '&grant_type=client_credentials', 'Graph');
+        }
+
+        // Token do SharePoint com certificado: client_assertion = JWT RS256 assinado com a chave privada
+        function sharepointToken(host) {
+            var now = Math.round(Date.now() / 1000);
+            var aud = 'https://login.microsoftonline.com/' + p.tenant_id + '/oauth2/v2.0/token';
+            var header = { alg: 'RS256', typ: 'JWT', x5t: b64urlBytes(hexToBytes(p.rb_thumbprint)) };
+            var claims = { aud: aud, iss: p.rb_client_id, sub: p.rb_client_id, jti: randomHex(32), nbf: now - 60, iat: now - 60, exp: now + 540 };
+            var input = b64urlBytes(asciiBytes(JSON.stringify(header))) + '.' + b64urlBytes(asciiBytes(JSON.stringify(claims)));
+            var sig;
+            try {
+                sig = sign('sha256', p.rb_private_key, input);
+            }
+            catch (e) {
+                throw 'Chave privada (macro SPO.RB.PRIVATE.KEY) inválida: ' + String(e).substring(0, 200);
+            }
+            var jwt = input + '.' + b64urlBytes(hexToBytes(sig));
+            return tokenRequest('client_id=' + encodeURIComponent(p.rb_client_id) +
+                '&client_assertion_type=' + encodeURIComponent('urn:ietf:params:oauth:client-assertion-type:jwt-bearer') +
+                '&client_assertion=' + encodeURIComponent(jwt) +
+                '&scope=' + encodeURIComponent('https://' + host + '/.default') +
+                '&grant_type=client_credentials', 'SharePoint (certificado)');
+        }
+
+        // Tentativa com segredo do cliente (sem certificado). O SharePoint costuma recusar este token (401).
+        function secretSharepointToken(host) {
+            return tokenRequest('client_id=' + encodeURIComponent(p.rb_client_id) +
+                '&client_secret=' + encodeURIComponent(p.client_secret) +
+                '&scope=' + encodeURIComponent('https://' + host + '/.default') +
+                '&grant_type=client_credentials', 'SharePoint (segredo)');
+        }
+
+        // ---------- coleta ----------
+        try {
+            // Modulo opcional: exige app com certificado e SharePoint Sites.FullControl.All (macro SPO.RB.ENABLED = 1)
+            if (String(p.enabled) !== '1') {
+                return JSON.stringify({ disabled: 1, error: '', warning: 'Leitura das lixeiras desativada (macro SPO.RB.ENABLED = 0).' });
+            }
+            // App: macro SPO.RB.CLIENT.ID ou, se vazia, o mesmo app do Zabbix (SPO.CLIENT.ID)
+            if (!p.rb_client_id) { p.rb_client_id = p.client_id; }
+            var useCert = !!(p.rb_private_key && p.rb_thumbprint);
+            var minBytes = (Number(p.site_min_mb) || 100) * 1048576;
+
+            // 1) Todos os sites (Graph), sem OneDrives pessoais
+            var g = newReq(), gtoken = graphToken(), urls = [], url, resp, data, i;
+            g.addHeader('Authorization: Bearer ' + gtoken);
+            url = 'https://graph.microsoft.com/v1.0/sites/getAllSites?$select=webUrl&$top=999';
+            while (url) {
+                resp = g.get(url);
+                if (g.getStatus() !== 200) {
+                    throw 'Graph getAllSites: HTTP ' + g.getStatus() + ' ' + String(resp).substring(0, 200);
+                }
+                data = JSON.parse(resp);
+                for (i = 0; i < (data.value || []).length; i++) {
+                    if (!/-my\.sharepoint\.com/i.test(data.value[i].webUrl || '')) {
+                        urls.push(String(data.value[i].webUrl).replace(/\/+$/, ''));
+                    }
+                }
+                url = data['@odata.nextLink'] || null;
+            }
+            out.sites_total = urls.length;
+            if (!urls.length) {
+                throw 'Nenhum site retornado pelo Graph.';
+            }
+
+            // 2) Token do SharePoint (certificado) e um unico HttpRequest reaproveitado (limite de objetos do Zabbix)
+            var host = urls[0].match(/^https:\/\/([^\/]+)/i)[1];
+            var sp = newReq();
+            sp.addHeader('Authorization: Bearer ' + (useCert ? sharepointToken(host) : secretSharepointToken(host)));
+            sp.addHeader('Accept: application/json;odata=nometadata');
+
+            var readBin = function (base, scope) {
+                var res = { s1c: 0, s1b: 0, s2c: 0, s2b: 0 }, u = base + '/_api/' + scope + '/RecycleBin?$select=Size,ItemState&$top=1000000', r, d, k, it;
+                while (u) {
+                    r = sp.get(u);
+                    if (sp.getStatus() !== 200) {
+                        var m = String(r);
+                        try { m = JSON.parse(r)['odata.error'].message.value || m; } catch (e) { }
+                        return { status: sp.getStatus(), msg: m.substring(0, 200) };
+                    }
+                    d = JSON.parse(r);
+                    for (k = 0; k < (d.value || []).length; k++) {
+                        it = d.value[k];
+                        if (Number(it.ItemState) === 2) { res.s2c++; res.s2b += Number(it.Size) || 0; }
+                        else { res.s1c++; res.s1b += Number(it.Size) || 0; }
+                    }
+                    u = d['odata.nextLink'] || null;
+                }
+                return res;
+            };
+
+            var firstErr = '', partialErr = '';
+            for (i = 0; i < urls.length; i++) {
+                var rel = urls[i].replace(/^https:\/\/[^\/]+/i, '') || '(raiz)';
+                var res = readBin(urls[i], 'site');
+                if (!useCert && i === 0 && res.status === 401) {
+                    throw 'A API do SharePoint recusou o token obtido com segredo do cliente (HTTP 401, "Unsupported app only token"). '
+                        + 'Ela só aceita app com certificado: carregue o certificado no app e preencha as macros SPO.RB.CERT.THUMBPRINT e SPO.RB.PRIVATE.KEY.';
+                }
+                var partial = false;
+                if (res.status === 401 || res.status === 403) {
+                    // sem acesso a lixeira do conjunto de sites (2º estagio): tenta so a lixeira do site (1º estagio)
+                    if (!partialErr) { partialErr = rel + ': ' + res.msg; }
+                    res = readBin(urls[i], 'web');
+                    partial = true;
+                }
+                if (res.status) {
+                    out.sites_error++;
+                    if (!firstErr) { firstErr = rel + ': HTTP ' + res.status + ' ' + res.msg; }
+                    continue;
+                }
+                out.sites_read++;
+                if (partial) { out.sites_partial++; }
+                out.stage1.count += res.s1c; out.stage1.size += res.s1b;
+                out.stage2.count += res.s2c; out.stage2.size += res.s2b;
+                if (res.s1b + res.s2b >= minBytes) {
+                    out.sites.push({ site: rel, s1_count: res.s1c, s1_size: res.s1b, s2_count: res.s2c, s2_size: res.s2b, partial: partial ? 1 : 0 });
+                }
+            }
+            out.sites.sort(function (a, b) { return (b.s1_size + b.s2_size) - (a.s1_size + a.s2_size); });
+            if (firstErr) {
+                out.error = 'Sites sem leitura: ' + out.sites_error + '. Ex.: ' + firstErr;
+            }
+            if (out.sites_partial > 0) {
+                out.warning = '2º estágio não lido em ' + out.sites_partial + ' site(s): o app precisa de SharePoint Sites.FullControl.All. Ex.: ' + partialErr;
+            }
+        }
+        catch (e) {
+            out.error = String(e).substring(0, 500);
+        }
+
+        return JSON.stringify(out);
+      timeout: '{$SPO.RB.TIMEOUT}'
+      description: 'Lista os sites pelo Graph (app do Zabbix) e lê a lixeira de cada site pela API REST do SharePoint (/_api/site/RecycleBin, 1º e 2º estágio), somando quantidade e tamanho. A API do SharePoint só aceita token de aplicativo obtido com certificado: o item assina um JWT RS256 com {$SPO.RB.PRIVATE.KEY}. Permissão: SharePoint Sites.FullControl.All (aplicativo), porque a lixeira de 2º estágio e os itens excluídos por outros usuários só aparecem para administradores do conjunto de sites. Ative com {$SPO.RB.ENABLED}=1. Somente leitura: nada é excluído ou restaurado. Sem acesso ao 2º estágio de um site, lê só o 1º (aviso).'
+      parameters:
+      - name: client_id
+        value: '{$SPO.CLIENT.ID}'
+      - name: client_secret
+        value: '{$SPO.CLIENT.SECRET}'
+      - name: enabled
+        value: '{$SPO.RB.ENABLED}'
+      - name: proxy
+        value: '{$SPO.PROXY}'
+      - name: rb_client_id
+        value: '{$SPO.RB.CLIENT.ID}'
+      - name: rb_private_key
+        value: '{$SPO.RB.PRIVATE.KEY}'
+      - name: rb_thumbprint
+        value: '{$SPO.RB.CERT.THUMBPRINT}'
+      - name: site_min_mb
+        value: '{$SPO.RB.SITE.MIN_MB}'
+      - name: tenant_id
+        value: '{$SPO.TENANT.ID}'
+      tags:
+      - tag: component
+        value: raw
+    - uuid: 555be2f5bb68450e8e855536f67f422d
+      name: 'SPO: Lixeira 1º estágio – tamanho'
+      type: DEPENDENT
+      key: spo.recycle.stage1.size
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma do tamanho dos itens na lixeira de 1º estágio (lixeira dos usuários) de todos os sites lidos. Conta na cota.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.stage1.size
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+      triggers:
+      - uuid: 92394a9b4207406385a2ad4530bd4fc0
+        expression: nodata(/SharePoint Online by Microsoft Graph/spo.recycle.stage1.size,{$SPO.RB.NODATA})=1 and {$SPO.RB.ENABLED}=1
+        name: 'SPO: Leitura das lixeiras sem dados há {$SPO.RB.NODATA}'
+        priority: WARNING
+        description: 'Veja o item "SPO: Lixeiras – erro na coleta": certificado, chave privada, permissão do app ou timeout.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: 13a18d354f3f44be903c8d2390cbaec9
+      name: 'SPO: Lixeira 1º estágio – itens'
+      type: DEPENDENT
+      key: spo.recycle.stage1.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Quantidade de itens na lixeira de 1º estágio de todos os sites lidos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.stage1.count
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: 74f909b129d3402c99415e3e1cec074b
+      name: 'SPO: Lixeira 2º estágio – tamanho'
+      type: DEPENDENT
+      key: spo.recycle.stage2.size
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      units: B
+      description: Soma do tamanho dos itens na lixeira de 2º estágio (do conjunto de sites) de todos os sites lidos. Conta na cota.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.stage2.size
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: eef3699c18874e5e92d1840452ea2a3b
+      name: 'SPO: Lixeira 2º estágio – itens'
+      type: DEPENDENT
+      key: spo.recycle.stage2.count
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Quantidade de itens na lixeira de 2º estágio de todos os sites lidos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.stage2.count
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: c89f395f68034354ba1036bf54287150
+      name: 'SPO: Lixeiras – sites lidos'
+      type: DEPENDENT
+      key: spo.recycle.sites.read
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Sites cujas lixeiras foram lidas.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_read
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: 40361fb340fb415db3f74d85a1fe48d7
+      name: 'SPO: Lixeiras – sites só 1º estágio'
+      type: DEPENDENT
+      key: spo.recycle.sites.partial
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Sites em que o app não teve acesso à lixeira de 2º estágio (lido só o 1º).
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_partial
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: 9989fa867bea4af5b043258b7ae4770e
+      name: 'SPO: Lixeiras – sites com erro'
+      type: DEPENDENT
+      key: spo.recycle.sites.error
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      description: Sites cuja lixeira não pôde ser lida.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_error
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+      triggers:
+      - uuid: 5400ca4c39554bf7b922243680066aeb
+        expression: last(/SharePoint Online by Microsoft Graph/spo.recycle.sites.error)>0
+        name: 'SPO: Lixeiras de {ITEM.LASTVALUE1} site(s) não puderam ser lidas'
+        priority: INFO
+        description: 'Os totais das lixeiras ficam incompletos. Veja o item "SPO: Lixeiras – erro na coleta".'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: db7045ea78534b04b2b099e6b418cdba
+      name: 'SPO: Lixeiras – total de sites'
+      type: DEPENDENT
+      key: spo.recycle.sites.total
+      history: 90d
+      value_type: UNSIGNED
+      trends: 365d
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites_total
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: recyclebin
+    - uuid: c6221be9af3242db96b89292cb676c98
+      name: 'SPO: Lixeiras – erro na coleta'
+      type: DEPENDENT
+      key: spo.recycle.error
+      history: 31d
+      value_type: TEXT
+      description: Mensagem de erro da leitura das lixeiras. Vazio = OK.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.error
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: health
+      triggers:
+      - uuid: 8665cda900c340fc94bf58adfee682c2
+        expression: length(last(/SharePoint Online by Microsoft Graph/spo.recycle.error))>0
+        name: 'SPO: Falha na leitura das lixeiras'
+        opdata: '{ITEM.LASTVALUE1}'
+        priority: WARNING
+        description: 'Token com certificado: confira {$SPO.RB.CLIENT.ID}, {$SPO.RB.CERT.THUMBPRINT}, {$SPO.RB.PRIVATE.KEY} e o certificado carregado no app. 401/403: permissão SharePoint Sites.FullControl.All (aplicativo) com consentimento do administrador.'
+        tags:
+        - tag: scope
+          value: availability
+    - uuid: a33a089cf06243ae876a14728752cdbd
+      name: 'SPO: Lixeiras – aviso'
+      type: DEPENDENT
+      key: spo.recycle.warning
+      history: 31d
+      value_type: TEXT
+      description: Sites lidos só no 1º estágio por falta de acesso ao 2º. Vazio = sem avisos.
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.warning
+        error_handler: DISCARD_VALUE
+      master_item:
+        key: spo.recyclebin.get
+      tags:
+      - tag: component
+        value: health
+    discovery_rules:
+    - uuid: ea01cb620fe34caa9db3f6a86af69f9d
+      name: 'SPO: Descoberta de sites'
+      type: DEPENDENT
+      key: spo.sites.discovery
+      filter:
+        evaltype: AND
+        conditions:
+        - macro: '{#SITE.URL}'
+          value: '{$SPO.LLD.URL.MATCHES}'
+        - macro: '{#SITE.URL}'
+          value: '{$SPO.LLD.URL.NOT_MATCHES}'
+          operator: NOT_MATCHES_REGEX
+      lifetime: 7d
+      description: Descobre os sites ativos do relatório getSharePointSiteUsageDetail. Sites excluídos ficam fora e entram no total de "Sites excluídos".
+      item_prototypes:
+      - uuid: f35c30fde20c4b37851de37d9ddd678d
+        name: 'Site {#SITE.URL}: armazenamento usado'
+        type: DEPENDENT
+        key: spo.site.used[{#SITE.ID}]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].used.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+      - uuid: af4928fc940a47768bd44421e6ea0a36
+        name: 'Site {#SITE.URL}: cota do site'
+        type: DEPENDENT
+        key: spo.site.allocated[{#SITE.ID}]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].allocated.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+      - uuid: 9d54641a113a45118e78702403948978
+        name: 'Site {#SITE.URL}: % da cota usada'
+        type: DEPENDENT
+        key: spo.site.pused[{#SITE.ID}]
+        history: 90d
+        value_type: FLOAT
+        trends: 365d
+        units: '%'
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].pused.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+        trigger_prototypes:
+        - uuid: 099609f9ae634645ad6627f07434e165
+          expression: last(/SharePoint Online by Microsoft Graph/spo.site.pused[{#SITE.ID}])>={$SPO.SITE.PUSED.HIGH}
+          name: 'SPO: {#SITE.URL} acima de {$SPO.SITE.PUSED.HIGH}% da cota do site'
+          opdata: 'Uso: {ITEM.LASTVALUE1}'
+          priority: HIGH
+          description: Só faz sentido em sites com cota manual. Com gerenciamento automático de armazenamento, a cota do site é o limite automático do tenant.
+          tags:
+          - tag: scope
+            value: capacity
+        - uuid: bf276827d5584b5fbf0202fb8f13c3c7
+          expression: last(/SharePoint Online by Microsoft Graph/spo.site.pused[{#SITE.ID}])>={$SPO.SITE.PUSED.WARN}
+          name: 'SPO: {#SITE.URL} acima de {$SPO.SITE.PUSED.WARN}% da cota do site'
+          opdata: 'Uso: {ITEM.LASTVALUE1}'
+          priority: WARNING
+          dependencies:
+          - name: 'SPO: {#SITE.URL} acima de {$SPO.SITE.PUSED.HIGH}% da cota do site'
+            expression: last(/SharePoint Online by Microsoft Graph/spo.site.pused[{#SITE.ID}])>={$SPO.SITE.PUSED.HIGH}
+          tags:
+          - tag: scope
+            value: capacity
+      - uuid: 14e45871d2124d6f8d74de8449a2fb15
+        name: 'Site {#SITE.URL}: arquivos'
+        type: DEPENDENT
+        key: spo.site.files[{#SITE.ID}]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].files.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+      - uuid: 80da60f2a1d740ec88b1e77083413645
+        name: 'Site {#SITE.URL}: arquivos ativos (7 dias)'
+        type: DEPENDENT
+        key: spo.site.active_files[{#SITE.ID}]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].active_files.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+      - uuid: 4723e6921d254caa83ed54aaaeeea46f
+        name: 'Site {#SITE.URL}: última atividade'
+        type: DEPENDENT
+        key: spo.site.last_activity[{#SITE.ID}]
+        history: 31d
+        value_type: CHAR
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.id=='{#SITE.ID}')].last_activity.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.reports.get
+        tags:
+        - tag: component
+          value: storage
+        - tag: site
+          value: '{#SITE.URL}'
+      master_item:
+        key: spo.reports.get
+      lld_macro_paths:
+      - lld_macro: '{#SITE.ID}'
+        path: $.id
+      - lld_macro: '{#SITE.NAME}'
+        path: $.name
+      - lld_macro: '{#SITE.TEMPLATE}'
+        path: $.template
+      - lld_macro: '{#SITE.URL}'
+        path: $.url
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites
+        error_handler: DISCARD_VALUE
+    - uuid: db369d2b3e9445539cdea4d9e91b66a4
+      name: 'SPO: Descoberta de bibliotecas'
+      type: DEPENDENT
+      key: spo.libraries.discovery
+      lifetime: 7d
+      description: Bibliotecas de documentos de todos os sites ({$SPO.LIBRARIES.ALL}=1) com pelo menos {$SPO.LIBRARIES.MIN_MB} MB, mais as dos sites em {$SPO.FOLDERS.SITES}.
+      item_prototypes:
+      - uuid: e27c60c7f3154b6298cf218d84a6974f
+        name: 'Biblioteca {#LIB.PATH}: tamanho'
+        type: DEPENDENT
+        key: spo.library.size["{#LIB.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.libraries[?(@.id=='{#LIB.ID}')].size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: library
+          value: '{#LIB.PATH}'
+      - uuid: 6f8454e397e04297b7455530d38ceb10
+        name: 'Biblioteca {#LIB.PATH}: itens na raiz'
+        type: DEPENDENT
+        key: spo.library.items["{#LIB.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.libraries[?(@.id=='{#LIB.ID}')].items.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: library
+          value: '{#LIB.PATH}'
+      - uuid: 9e602b426b7a46f4a0f5afd6babef56c
+        name: 'Biblioteca {#LIB.PATH}: última modificação'
+        type: DEPENDENT
+        key: spo.library.modified["{#LIB.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: unixtime
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.libraries[?(@.id=='{#LIB.ID}')].modified.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: library
+          value: '{#LIB.PATH}'
+      master_item:
+        key: spo.folders.get
+      lld_macro_paths:
+      - lld_macro: '{#LIB.ID}'
+        path: $.id
+      - lld_macro: '{#LIB.NAME}'
+        path: $.name
+      - lld_macro: '{#LIB.PATH}'
+        path: $.path
+      - lld_macro: '{#LIB.SITE}'
+        path: $.site
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.libraries
+        error_handler: DISCARD_VALUE
+    - uuid: ec08b705fd7d484495fc1b9065b59163
+      name: 'SPO: Descoberta de pastas'
+      type: DEPENDENT
+      key: spo.folders.discovery
+      lifetime: 7d
+      description: Pastas de 1º nível das bibliotecas dos sites em {$SPO.FOLDERS.SITES} (as {$SPO.FOLDERS.MAX} maiores).
+      item_prototypes:
+      - uuid: 67d1d6b549754743928107073370a6b6
+        name: 'Pasta {#FOLDER.PATH}: tamanho'
+        type: DEPENDENT
+        key: spo.folder.size["{#FOLDER.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.folders[?(@.id=='{#FOLDER.ID}')].size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: folder
+          value: '{#FOLDER.PATH}'
+      - uuid: 280c474b99af474699371c1a4c7fb637
+        name: 'Pasta {#FOLDER.PATH}: itens'
+        type: DEPENDENT
+        key: spo.folder.items["{#FOLDER.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.folders[?(@.id=='{#FOLDER.ID}')].items.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: folder
+          value: '{#FOLDER.PATH}'
+      - uuid: 67b508dd2c9341d9bbfcd7c69e9d7c63
+        name: 'Pasta {#FOLDER.PATH}: criada em'
+        type: DEPENDENT
+        key: spo.folder.created["{#FOLDER.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: unixtime
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.folders[?(@.id=='{#FOLDER.ID}')].created.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: folder
+          value: '{#FOLDER.PATH}'
+      - uuid: 12eb42270361407b925f579e0d85df65
+        name: 'Pasta {#FOLDER.PATH}: última modificação'
+        type: DEPENDENT
+        key: spo.folder.modified["{#FOLDER.ID}"]
+        history: 90d
+        value_type: UNSIGNED
+        trends: 365d
+        units: unixtime
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.folders[?(@.id=='{#FOLDER.ID}')].modified.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.folders.get
+        tags:
+        - tag: component
+          value: folders
+        - tag: folder
+          value: '{#FOLDER.PATH}'
+      master_item:
+        key: spo.folders.get
+      lld_macro_paths:
+      - lld_macro: '{#FOLDER.ID}'
+        path: $.id
+      - lld_macro: '{#FOLDER.LIBRARY}'
+        path: $.library
+      - lld_macro: '{#FOLDER.PATH}'
+        path: $.path
+      - lld_macro: '{#FOLDER.SITE}'
+        path: $.site
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.folders
+        error_handler: DISCARD_VALUE
+    - uuid: 6bd3b6d11aae41d0a2ba07b9888e5291
+      name: 'SPO: Descoberta dos maiores arquivos e históricos de versões'
+      type: DEPENDENT
+      key: spo.bigfiles.discovery
+      lifetime: 3d
+      description: Cria itens para os {$SPO.BIGFILES.MAX} maiores arquivos e para os {$SPO.BIGFILES.MAX} com maior histórico de versões (união das duas listas). O nome do item segue o formato "arquivo | site | pasta", usado pelo painel do Grafana para montar as colunas.
+      item_prototypes:
+      - uuid: a1d21d9fc5c048e79cef9ac1e2cba020
+        name: 'Arquivo {#FILE.LABEL}: tamanho'
+        type: DEPENDENT
+        key: spo.bigfile.size["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: 2b14cd48fc5641da89a198d4a6433cde
+        name: 'Arquivo {#FILE.LABEL}: versões antigas'
+        type: DEPENDENT
+        key: spo.bigfile.versions_size["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].versions_size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: a2c6c89b78f04f2fa69371d99e9364d1
+        name: 'Arquivo {#FILE.LABEL}: qtd versões'
+        type: DEPENDENT
+        key: spo.bigfile.versions_count["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].versions_count.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: e8e4442455ae47e19e7a39e5ff16197e
+        name: 'Arquivo {#FILE.LABEL}: última alteração'
+        type: DEPENDENT
+        key: spo.bigfile.modified["{#FILE.ID}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: unixtime
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].modified.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: 15d5628f2539472bbddce581a28cbdbc
+        name: 'Arquivo {#FILE.LABEL}: url'
+        type: DEPENDENT
+        key: spo.bigfile.url["{#FILE.ID}"]
+        history: 31d
+        value_type: TEXT
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].url.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      - uuid: 4880b7ddaa3a4772b232519cc7b368d8
+        name: 'Arquivo {#FILE.LABEL}: url da pasta'
+        type: DEPENDENT
+        key: spo.bigfile.folder_url["{#FILE.ID}"]
+        history: 31d
+        value_type: TEXT
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.files[?(@.id=='{#FILE.ID}')].folder_url.first()
+          error_handler: DISCARD_VALUE
+        - type: DISCARD_UNCHANGED_HEARTBEAT
+          parameters:
+          - 1d
+        master_item:
+          key: spo.bigfiles.get
+        tags:
+        - tag: component
+          value: bigfiles
+        - tag: site
+          value: '{#FILE.SITE}'
+      master_item:
+        key: spo.bigfiles.get
+      lld_macro_paths:
+      - lld_macro: '{#FILE.FOLDER}'
+        path: $.folder
+      - lld_macro: '{#FILE.ID}'
+        path: $.id
+      - lld_macro: '{#FILE.LABEL}'
+        path: $.label
+      - lld_macro: '{#FILE.NAME}'
+        path: $.name
+      - lld_macro: '{#FILE.SITE}'
+        path: $.site
+      - lld_macro: '{#FILE.URL}'
+        path: $.url
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.files
+        error_handler: DISCARD_VALUE
+    - uuid: b4a5a376a56245119c8b754020818ec7
+      name: 'SPO: Descoberta das lixeiras por site'
+      type: DEPENDENT
+      key: spo.recycle.sites.discovery
+      lifetime: 7d
+      description: Cria itens para os sites cuja lixeira (1º + 2º estágio) passa de {$SPO.RB.SITE.MIN_MB} MB.
+      item_prototypes:
+      - uuid: 72a6f04d3e984a94a3685ef5bca7e714
+        name: 'Lixeira {#RB.SITE}: 1º estágio – tamanho'
+        type: DEPENDENT
+        key: spo.recycle.site.s1_size["{#RB.SITE}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.site=='{#RB.SITE}')].s1_size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.recyclebin.get
+        tags:
+        - tag: component
+          value: recyclebin
+        - tag: site
+          value: '{#RB.SITE}'
+      - uuid: bd52517e73bf4694ab67d18a7a178297
+        name: 'Lixeira {#RB.SITE}: 1º estágio – itens'
+        type: DEPENDENT
+        key: spo.recycle.site.s1_count["{#RB.SITE}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.site=='{#RB.SITE}')].s1_count.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.recyclebin.get
+        tags:
+        - tag: component
+          value: recyclebin
+        - tag: site
+          value: '{#RB.SITE}'
+      - uuid: d69ba633604d451880f215a46b64b70e
+        name: 'Lixeira {#RB.SITE}: 2º estágio – tamanho'
+        type: DEPENDENT
+        key: spo.recycle.site.s2_size["{#RB.SITE}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        units: B
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.site=='{#RB.SITE}')].s2_size.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.recyclebin.get
+        tags:
+        - tag: component
+          value: recyclebin
+        - tag: site
+          value: '{#RB.SITE}'
+      - uuid: d11afc4f60a14a2bb64765391aade594
+        name: 'Lixeira {#RB.SITE}: 2º estágio – itens'
+        type: DEPENDENT
+        key: spo.recycle.site.s2_count["{#RB.SITE}"]
+        history: 31d
+        value_type: UNSIGNED
+        trends: 90d
+        preprocessing:
+        - type: JSONPATH
+          parameters:
+          - $.sites[?(@.site=='{#RB.SITE}')].s2_count.first()
+          error_handler: DISCARD_VALUE
+        master_item:
+          key: spo.recyclebin.get
+        tags:
+        - tag: component
+          value: recyclebin
+        - tag: site
+          value: '{#RB.SITE}'
+      master_item:
+        key: spo.recyclebin.get
+      lld_macro_paths:
+      - lld_macro: '{#RB.SITE}'
+        path: $.site
+      preprocessing:
+      - type: JSONPATH
+        parameters:
+        - $.sites
+        error_handler: DISCARD_VALUE
+    tags:
+    - tag: class
+      value: software
+    - tag: target
+      value: microsoft365
+    - tag: target
+      value: sharepoint
+    macros:
+    - macro: '{$SPO.BIGFILES.INTERVAL}'
+      value: 6h
+      description: Intervalo da pesquisa dos maiores arquivos (inclui a leitura das versões).
+    - macro: '{$SPO.BIGFILES.MAX}'
+      value: '50'
+      description: Quantos dos maiores arquivos viram itens no Zabbix. Máximo 500.
+    - macro: '{$SPO.BIGFILES.MIN_MB}'
+      value: '200'
+      description: Tamanho mínimo (MB) para o arquivo entrar na pesquisa.
+    - macro: '{$SPO.BIGFILES.ONEDRIVE}'
+      value: '0'
+      description: 1 = inclui arquivos dos OneDrives pessoais; 0 = só SharePoint (é o que conta na cota do tenant).
+    - macro: '{$SPO.BIGFILES.TIMEOUT}'
+      value: 300s
+      description: Timeout do item Script dos maiores arquivos e versões (máximo 600s).
+    - macro: '{$SPO.CLIENT.ID}'
+      value: ''
+      description: ID do aplicativo (cliente) do App Registration com Reports.Read.All (aplicativo). Defina no host.
+    - macro: '{$SPO.CLIENT.SECRET}'
+      value: ''
+      description: Segredo do cliente do App Registration. Defina no host. Anote a data de expiração.
+      type: SECRET_TEXT
+    - macro: '{$SPO.FOLDERS.INTERVAL}'
+      value: 3h
+      description: Intervalo da coleta de bibliotecas e pastas.
+    - macro: '{$SPO.FOLDERS.MAX}'
+      value: '200'
+      description: Quantidade máxima de pastas de 1º nível (as maiores) que viram itens no Zabbix.
+    - macro: '{$SPO.FOLDERS.SITES}'
+      value: ''
+      description: 'URLs dos sites para detalhar por biblioteca/pasta, separadas por vírgula. Ex.: https://contoso.sharepoint.com/. Vazio = não coleta.'
+    - macro: '{$SPO.FOLDERS.TIMEOUT}'
+      value: 300s
+      description: Timeout do item Script de bibliotecas e pastas (máximo 600s).
+    - macro: '{$SPO.GET_INTERVAL}'
+      value: 6h
+      description: Intervalo da coleta. Os relatórios do Graph mudam uma vez por dia.
+    - macro: '{$SPO.LIBRARIES.ALL}'
+      value: '1'
+      description: 1 = coleta o tamanho das bibliotecas de todos os sites; 0 = só dos sites em {$SPO.FOLDERS.SITES}.
+    - macro: '{$SPO.LIBRARIES.MIN_MB}'
+      value: '100'
+      description: Bibliotecas menores que este tamanho (MB) não viram itens, para não poluir o Zabbix.
+    - macro: '{$SPO.LLD.URL.MATCHES}'
+      value: .*
+      description: 'Filtro: descobre apenas sites cuja URL casa com esta regex.'
+    - macro: '{$SPO.LLD.URL.NOT_MATCHES}'
+      value: CHANGE_IF_NEEDED
+      description: 'Filtro: ignora sites cuja URL casa com esta regex.'
+    - macro: '{$SPO.NODATA.TIMEOUT}'
+      value: 13h
+      description: Tempo sem dados de armazenamento para alertar (pelo menos 2x o intervalo da coleta).
+    - macro: '{$SPO.PROXY}'
+      value: ''
+      description: 'Proxy HTTP opcional para a saída do Zabbix, ex.: http://proxy.exemplo.local:3128. Vazio = sem proxy.'
+    - macro: '{$SPO.RB.CERT.THUMBPRINT}'
+      value: ''
+      description: Impressão digital (SHA-1, hexadecimal) do certificado carregado no app. Aparece em Certificados e segredos.
+    - macro: '{$SPO.RB.CLIENT.ID}'
+      value: ''
+      description: ID do app com a permissão SharePoint Sites.FullControl.All (aplicativo) e o certificado. Vazio = usa o mesmo app ({$SPO.CLIENT.ID}).
+    - macro: '{$SPO.RB.ENABLED}'
+      value: '0'
+      description: 'Leitura das lixeiras (1º e 2º estágio): 1 = ativa, 0 = desativada. Exige certificado no app e a permissão SharePoint Sites.FullControl.All (aplicativo). Veja a documentação.'
+    - macro: '{$SPO.RB.INTERVAL}'
+      value: 6h
+      description: Intervalo da leitura das lixeiras.
+    - macro: '{$SPO.RB.NODATA}'
+      value: 13h
+      description: Alerta se a leitura das lixeiras ficar sem dados nesse período.
+    - macro: '{$SPO.RB.PRIVATE.KEY}'
+      value: ''
+      description: Chave privada do certificado em PEM (RSA 2048, PKCS#8 ou PKCS#1), pode ser colada em uma linha só. Máximo 2048 caracteres.
+      type: SECRET_TEXT
+    - macro: '{$SPO.RB.SITE.MIN_MB}'
+      value: '100'
+      description: Só viram itens por site as lixeiras (1º + 2º estágio) acima deste tamanho em MB. Os totais incluem todos os sites.
+    - macro: '{$SPO.RB.TIMEOUT}'
+      value: 600s
+      description: Timeout do item de leitura das lixeiras (máximo 600s).
+    - macro: '{$SPO.REPORT.MAXAGE}'
+      value: '259200'
+      description: Idade máxima do relatório do Graph, em segundos (259200 = 3 dias).
+    - macro: '{$SPO.SCRIPT.TIMEOUT}'
+      value: 60s
+      description: Timeout do item Script (token + 2 relatórios).
+    - macro: '{$SPO.SEARCH.REGION}'
+      value: ''
+      description: 'Região da Pesquisa do Microsoft 365 (ex.: BRA). Vazio = detecta automaticamente.'
+    - macro: '{$SPO.SITE.PUSED.HIGH}'
+      value: '95'
+      description: Percentual da cota do site para alerta High.
+    - macro: '{$SPO.SITE.PUSED.WARN}'
+      value: '85'
+      description: Percentual da cota do site para alerta Warning.
+    - macro: '{$SPO.TENANT.ID}'
+      value: ''
+      description: ID do diretório (locatário) do Entra ID. Defina no host.
+    - macro: '{$SPO.TENANT.PUSED.CRIT}'
+      value: '100'
+      description: Percentual da cota do tenant para alerta High (acima de 100% o SharePoint fica somente leitura).
+    - macro: '{$SPO.TENANT.PUSED.WARN}'
+      value: '90'
+      description: Percentual da cota do tenant para alerta Warning.
+    - macro: '{$SPO.TENANT.QUOTA.GB}'
+      value: '0'
+      description: 'Cota total do tenant em GB: (Get-SPOTenant).StorageQuota / 1024. Defina no host.'
+    - macro: '{$SPO.VERSIONS.MIN_MB}'
+      value: '50'
+      description: Tamanho mínimo (MB) do arquivo para entrar na análise de versões.
+    - macro: '{$SPO.VERSIONS.SCAN}'
+      value: '500'
+      description: Quantos dos maiores arquivos têm as versões medidas para achar os maiores históricos de versões (máximo 2000; cada 20 arquivos = 1 chamada $batch ao Graph).

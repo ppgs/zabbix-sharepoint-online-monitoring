@@ -1,0 +1,4658 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_ZABBIX",
+      "label": "Zabbix",
+      "description": "Datasource do Zabbix",
+      "type": "datasource",
+      "pluginId": "alexanderzobnin-zabbix-datasource",
+      "pluginName": "Zabbix"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "datasource",
+      "id": "alexanderzobnin-zabbix-datasource",
+      "name": "Zabbix",
+      "version": "5.0.0"
+    },
+    {
+      "type": "panel",
+      "id": "gauge",
+      "name": "Gauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "bargauge",
+      "name": "Bar gauge",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "stat",
+      "name": "Stat",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "table",
+      "name": "Table",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "timeseries",
+      "name": "Time series",
+      "version": ""
+    },
+    {
+      "type": "panel",
+      "id": "alexanderzobnin-zabbix-triggers-panel",
+      "name": "Zabbix Problems",
+      "version": ""
+    }
+  ],
+  "title": "SharePoint Online – Armazenamento",
+  "uid": "sharepoint-online-storage",
+  "description": "Armazenamento do SharePoint Online (cota, sites, bibliotecas, maiores arquivos, versões e lixeiras) via template Zabbix 'SharePoint Online by Microsoft Graph'. Autor: Pablo Pires de Godoi Silva. Licença MIT.",
+  "tags": [
+    "sharepoint",
+    "microsoft365",
+    "capacidade",
+    "noc"
+  ],
+  "timezone": "browser",
+  "editable": true,
+  "graphTooltip": 1,
+  "refresh": "30m",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "schemaVersion": 41,
+  "version": 18,
+  "links": [
+    {
+      "title": "Centro de administração do SharePoint",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true,
+      "url": "https://${tenant}-admin.sharepoint.com/_layouts/15/online/AdminHome.aspx#/siteManagement"
+    },
+    {
+      "title": "Lixeira do site raiz",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true,
+      "url": "https://${tenant}.sharepoint.com/_layouts/15/RecycleBin.aspx"
+    },
+    {
+      "title": "Métricas de armazenamento (raiz)",
+      "type": "link",
+      "icon": "external link",
+      "targetBlank": true,
+      "url": "https://${tenant}.sharepoint.com/_layouts/15/storman.aspx"
+    }
+  ],
+  "annotations": {
+    "list": []
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "grupo",
+        "type": "query",
+        "label": "Grupo",
+        "hide": 0,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "query": {
+          "queryType": "group",
+          "group": "/.*/",
+          "host": "",
+          "application": "",
+          "itemTag": "",
+          "item": ""
+        },
+        "definition": "Zabbix - group",
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "host",
+        "type": "query",
+        "label": "Host",
+        "hide": 0,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "refresh": 1,
+        "sort": 1,
+        "query": {
+          "queryType": "host",
+          "group": "$grupo",
+          "host": "/.*/",
+          "application": "",
+          "itemTag": "",
+          "item": ""
+        },
+        "definition": "Zabbix - host",
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "tenant",
+        "type": "textbox",
+        "label": "Tenant (nome antes de .sharepoint.com)",
+        "hide": 0,
+        "query": "contoso",
+        "current": {
+          "text": "contoso",
+          "value": "contoso"
+        },
+        "options": [
+          {
+            "text": "contoso",
+            "value": "contoso",
+            "selected": true
+          }
+        ],
+        "description": "Usado só nos atalhos do topo (Centro de administração, lixeira e métricas). Ex.: contoso para contoso.sharepoint.com."
+      },
+      {
+        "name": "cfg_min_mb",
+        "label": "Mínimo MB",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "query": {
+          "queryType": "itemValues",
+          "group": "$grupo",
+          "host": "$host",
+          "application": "",
+          "itemTag": "",
+          "item": "SPO: Config – tamanho mínimo dos maiores arquivos (MB)"
+        },
+        "definition": "Zabbix - itemValues",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "skipUrlSync": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "cfg_max",
+        "label": "Top",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "query": {
+          "queryType": "itemValues",
+          "group": "$grupo",
+          "host": "$host",
+          "application": "",
+          "itemTag": "",
+          "item": "SPO: Config – quantidade de maiores arquivos"
+        },
+        "definition": "Zabbix - itemValues",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "skipUrlSync": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "cfg_ver_min_mb",
+        "label": "Mínimo MB versões",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "query": {
+          "queryType": "itemValues",
+          "group": "$grupo",
+          "host": "$host",
+          "application": "",
+          "itemTag": "",
+          "item": "SPO: Config – tamanho mínimo na análise de versões (MB)"
+        },
+        "definition": "Zabbix - itemValues",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "skipUrlSync": true,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "cfg_ver_scan",
+        "label": "Arquivos analisados",
+        "type": "query",
+        "hide": 2,
+        "datasource": {
+          "type": "alexanderzobnin-zabbix-datasource",
+          "uid": "${DS_ZABBIX}"
+        },
+        "query": {
+          "queryType": "itemValues",
+          "group": "$grupo",
+          "host": "$host",
+          "application": "",
+          "itemTag": "",
+          "item": "SPO: Config – arquivos analisados nas versões"
+        },
+        "definition": "Zabbix - itemValues",
+        "refresh": 2,
+        "sort": 0,
+        "multi": false,
+        "includeAll": false,
+        "regex": "",
+        "skipUrlSync": true,
+        "current": {},
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "Capacidade do tenant",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 1,
+      "type": "gauge",
+      "title": "Uso da cota do tenant",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "description": "Uso do armazenamento do SharePoint sobre a cota do tenant. Acima de 100% os sites ficam somente leitura. Fonte: relatórios do Microsoft Graph (atraso de 24–48 h).",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 6,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*% da cota usada$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdMarkers": true,
+        "showThresholdLabels": false,
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "sizing": "auto"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "decimals": 1,
+          "min": 0,
+          "max": 125,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Armazenamento usado",
+      "description": "Total usado no SharePoint (dia mais recente do relatório).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*armazenamento usado$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Cota do tenant",
+      "description": "Valor da macro {$SPO.TENANT.QUOTA.GB} no host.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 11,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*cota total$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Espaço livre (negativo = acima da cota)",
+      "description": "Cota menos uso. Negativo = acima da cota (somente leitura). Laranja abaixo de 100 GB livres.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 1,
+        "w": 5,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*espaço livre$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 107374182400
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Sites ativos",
+      "description": "",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 21,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Sites ativos"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Tendência: usado x cota",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "description": "Tendência do armazenamento do SharePoint. A linha vermelha tracejada é a cota.",
+      "gridPos": {
+        "x": 6,
+        "y": 5,
+        "w": 18,
+        "h": 5
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*armazenamento usado$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Tenant .*cota total$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "default"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true,
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "custom": {
+            "drawStyle": "line",
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "fillOpacity": 25,
+            "showPoints": "never",
+            "pointSize": 4,
+            "spanNulls": true,
+            "axisSoftMin": 0,
+            "gradientMode": "opacity",
+            "axisPlacement": "right"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*cota total.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Cota"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    10,
+                    10
+                  ]
+                }
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*armazenamento usado.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Usado"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "Lixeiras e espaço recuperável",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 10,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 23,
+      "type": "stat",
+      "title": "Lixeira – 1º estágio",
+      "description": "Itens excluídos pelos usuários em todos os sites (lixeira do site, até 93 dias). Conta na cota. Esvaziar o 1º estágio só move os itens para o 2º estágio.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 11,
+        "w": 7,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 1º estágio – tamanho"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 1º estágio – itens"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/tamanho$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tamanho"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/itens$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Itens"
+              },
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 24,
+      "type": "stat",
+      "title": "Lixeira – 2º estágio",
+      "description": "Itens removidos da lixeira dos usuários, na lixeira do conjunto de sites. Conta na cota até sair do 2º estágio (93 dias desde a exclusão original).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 7,
+        "y": 11,
+        "w": 7,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 2º estágio – tamanho"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 2º estágio – itens"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 1
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/tamanho$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tamanho"
+              },
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/itens$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Itens"
+              },
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 28,
+      "type": "bargauge",
+      "title": "Espaço recuperável",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "description": "Onde está o espaço que pode ser liberado sem mexer no conteúdo atual: lixeiras (1º e 2º estágio), versões antigas dos maiores arquivos analisados e sites excluídos. Tudo isso conta na cota. Referência: o excedente aparece no card Espaço livre.",
+      "gridPos": {
+        "x": 14,
+        "y": 11,
+        "w": 10,
+        "h": 7
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 1º estágio – tamanho"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeira 2º estágio – tamanho"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Versões antigas – total nos arquivos analisados"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Sites excluídos .*armazenamento usado$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "valueMode": "color",
+        "namePlacement": "top",
+        "showUnfilled": true,
+        "sizing": "auto",
+        "minVizHeight": 16,
+        "maxVizHeight": 40,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "decimals": 1,
+          "min": 0,
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "orange"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/Lixeira 1º estágio/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Lixeira – 1º estágio"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/Lixeira 2º estágio/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Lixeira – 2º estágio"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/Versões antigas/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Versões antigas (arquivos analisados)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "purple"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/Sites excluídos/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Sites excluídos (lixeira de sites)"
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 27,
+      "type": "table",
+      "title": "Lixeiras por site",
+      "description": "Sites cuja lixeira (1º + 2º estágio) passa de {$SPO.RB.SITE.MIN_MB} MB (macro do host). Atualiza a cada 6 h.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 18,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Lixeira .*: (1º|2º) estágio – (tamanho|itens)$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Field",
+            "format": "regexp",
+            "regExp": "/^Lixeira (?<Site>.*): (?<Metrica>(1º|2º) estágio – (tamanho|itens))$/",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "groupingToMatrix",
+          "options": {
+            "columnField": "Metrica",
+            "rowField": "Site",
+            "valueField": "Last *",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "1º estágio – tamanho",
+              "operator": "+",
+              "right": "2º estágio – tamanho"
+            },
+            "alias": "Total",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "renameByName": {
+              "Site\\Metrica": "Site"
+            },
+            "indexByName": {
+              "Site\\Metrica": 0,
+              "Total": 1,
+              "1º estágio – tamanho": 2,
+              "1º estágio – itens": 3,
+              "2º estágio – tamanho": 4,
+              "2º estágio – itens": 5
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Total",
+                "desc": true
+              }
+            ]
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": true,
+          "reducer": [
+            "sum"
+          ],
+          "fields": [
+            "Total",
+            "1º estágio – tamanho",
+            "1º estágio – itens",
+            "2º estágio – tamanho",
+            "2º estágio – itens"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/tamanho|Total/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Total"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/itens/"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "locale"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "Sites e bibliotecas",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 26,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Top 20 sites por armazenamento",
+      "description": "Último valor de cada site (relatório do Graph, atraso de 24–48 h). Onde a limpeza rende mais.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 27,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Site .*: armazenamento usado$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Last *",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 20
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "renameByName": {
+              "Field": "Site",
+              "Last *": "Tamanho"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Site"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^Site (.*): armazenamento usado$",
+                      "result": {
+                        "text": "$1",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 12,
+      "type": "table",
+      "title": "Tamanho por biblioteca – todos os sites",
+      "description": "Bibliotecas de todos os sites com pelo menos {$SPO.LIBRARIES.MIN_MB} MB, lidas pelo Graph a cada 3 h. Considera a versão atual dos arquivos; o histórico de versões não entra.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 27,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Biblioteca .*: tamanho$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Last *",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 2000
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "renameByName": {
+              "Field": "Biblioteca",
+              "Last *": "Tamanho"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Biblioteca"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^Biblioteca (.*): tamanho$",
+                      "result": {
+                        "text": "$1",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 13,
+      "type": "table",
+      "title": "Pastas descobertas – maiores",
+      "description": "Pastas de 1º nível das bibliotecas monitoradas, da maior para a menor (top 30).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 38,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Pasta .*: tamanho$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Last *",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 30
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "renameByName": {
+              "Field": "Pasta",
+              "Last *": "Tamanho"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pasta"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^Pasta (.*): tamanho$",
+                      "result": {
+                        "text": "$1",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              },
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 14,
+      "type": "table",
+      "title": "Bibliotecas – última modificação",
+      "description": "Última alteração registrada em cada biblioteca monitorada. Mostra quais bibliotecas estão em uso.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 38,
+        "w": 12,
+        "h": 11
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Biblioteca .*: última modificação$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "Last *",
+              "operator": "*",
+              "right": "1000"
+            },
+            "alias": "Última modificação",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Última modificação",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 30
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Last *": true
+            },
+            "renameByName": {
+              "Field": "Biblioteca"
+            }
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Biblioteca"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "regex",
+                    "options": {
+                      "pattern": "^Biblioteca (.*): última modificação$",
+                      "result": {
+                        "text": "$1",
+                        "index": 0
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Última modificação"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "Arquivos grandes e versões",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 49,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Arquivos acima de ${cfg_min_mb} MB",
+      "description": "Quantos arquivos acima de ${cfg_min_mb} MB existem nos sites (Pesquisa do Microsoft 365). Limite definido na macro {$SPO.BIGFILES.MIN_MB} do host.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 50,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Arquivos acima do tamanho mínimo"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 21,
+      "type": "table",
+      "title": "Maiores arquivos – top ${cfg_max} de todos os sites",
+      "description": "Os ${cfg_max} maiores arquivos acima de ${cfg_min_mb} MB, com site, pasta, tamanho atual e data da última alteração. Atualiza a cada 6 h.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 50,
+        "w": 20,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: tamanho$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: última alteração$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: url$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: url da pasta$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "filter": {
+            "id": "byRefId",
+            "options": "A|D"
+          },
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "reduce",
+          "filter": {
+            "id": "byRefId",
+            "options": "E|F"
+          },
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Field",
+            "format": "regexp",
+            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|url da pasta|url)$/",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "groupingToMatrix",
+          "filter": {
+            "id": "byRefId",
+            "options": "/^reduce-[A-D-]+$/"
+          },
+          "options": {
+            "columnField": "Metrica",
+            "rowField": "Chave",
+            "valueField": "Last *",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "groupingToMatrix",
+          "filter": {
+            "id": "byRefId",
+            "options": "/^reduce-[EF-]+$/"
+          },
+          "options": {
+            "columnField": "Metrica",
+            "rowField": "Chave",
+            "valueField": "Last *",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Chave\\Metrica",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Chave\\Metrica",
+            "format": "regexp",
+            "regExp": "/^(?<Arquivo>.*?) \\| (?<Site>.*?) \\| (?<Pasta>.*)$/",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "última alteração",
+              "operator": "*",
+              "right": "1000"
+            },
+            "alias": "Alterado",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Chave\\Metrica": true,
+              "última alteração": true
+            },
+            "renameByName": {
+              "tamanho": "Tamanho"
+            },
+            "indexByName": {
+              "Arquivo": 0,
+              "Site": 1,
+              "Pasta": 2,
+              "tamanho": 3,
+              "Alterado": 4,
+              "url": 5,
+              "url da pasta": 6
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Tamanho",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 50
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Tamanho",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Arquivo"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Abrir o arquivo no SharePoint (nova aba)",
+                    "url": "${__data.fields.url:raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Site"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pasta"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Abrir a pasta no SharePoint (nova aba)",
+                    "url": "${__data.fields[\"url da pasta\"]:raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alterado"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url da pasta"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Maiores arquivos – tamanho",
+      "description": "Soma do tamanho atual dos ${cfg_max} maiores arquivos listados ao lado.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 56,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Maiores arquivos .*tamanho somado$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 22,
+      "type": "stat",
+      "title": "Versões antigas – arquivos analisados",
+      "description": "Soma das versões antigas de todos os ${cfg_ver_scan} arquivos analisados (os maiores acima de ${cfg_ver_min_mb} MB).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Versões antigas – total nos arquivos analisados"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 18,
+      "type": "table",
+      "title": "Maiores históricos de versões – top ${cfg_max} de todos os sites",
+      "description": "Arquivos cujas versões antigas mais ocupam a cota, com site, pasta, quantidade de versões e tamanho atual. Analisa os ${cfg_ver_scan} maiores arquivos acima de ${cfg_ver_min_mb} MB (macros {$SPO.VERSIONS.SCAN} e {$SPO.VERSIONS.MIN_MB} do host). Atualiza a cada 6 h.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 62,
+        "w": 20,
+        "h": 12
+      },
+      "targets": [
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: versões antigas$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: qtd versões$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: tamanho$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: última alteração$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "E",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: url$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "F",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^Arquivo .*: url da pasta$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "transformations": [
+        {
+          "id": "reduce",
+          "filter": {
+            "id": "byRefId",
+            "options": "B|C|A|D"
+          },
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "reduce",
+          "filter": {
+            "id": "byRefId",
+            "options": "E|F"
+          },
+          "options": {
+            "mode": "seriesToRows",
+            "reducers": [
+              "lastNotNull"
+            ],
+            "includeTimeField": false
+          }
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Field",
+            "format": "regexp",
+            "regExp": "/^Arquivo (?<Chave>.*): (?<Metrica>tamanho|versões antigas|qtd versões|última alteração|url da pasta|url)$/",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "groupingToMatrix",
+          "filter": {
+            "id": "byRefId",
+            "options": "/^reduce-[A-D-]+$/"
+          },
+          "options": {
+            "columnField": "Metrica",
+            "rowField": "Chave",
+            "valueField": "Last *",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "groupingToMatrix",
+          "filter": {
+            "id": "byRefId",
+            "options": "/^reduce-[EF-]+$/"
+          },
+          "options": {
+            "columnField": "Metrica",
+            "rowField": "Chave",
+            "valueField": "Last *",
+            "emptyValue": "null"
+          }
+        },
+        {
+          "id": "joinByField",
+          "options": {
+            "byField": "Chave\\Metrica",
+            "mode": "outer"
+          }
+        },
+        {
+          "id": "extractFields",
+          "options": {
+            "source": "Chave\\Metrica",
+            "format": "regexp",
+            "regExp": "/^(?<Arquivo>.*?) \\| (?<Site>.*?) \\| (?<Pasta>.*)$/",
+            "replace": false,
+            "keepTime": false
+          }
+        },
+        {
+          "id": "calculateField",
+          "options": {
+            "mode": "binary",
+            "binary": {
+              "left": "última alteração",
+              "operator": "*",
+              "right": "1000"
+            },
+            "alias": "Alterado",
+            "replaceFields": false
+          }
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Chave\\Metrica": true,
+              "última alteração": true
+            },
+            "renameByName": {
+              "versões antigas": "Versões antigas",
+              "qtd versões": "Qtd versões",
+              "tamanho": "Tamanho"
+            },
+            "indexByName": {
+              "Arquivo": 0,
+              "Site": 1,
+              "Pasta": 2,
+              "versões antigas": 3,
+              "qtd versões": 4,
+              "tamanho": 5,
+              "Alterado": 6,
+              "url": 7,
+              "url da pasta": 8
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Versões antigas",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 50
+          }
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "sortBy": [
+          {
+            "displayName": "Versões antigas",
+            "desc": true
+          }
+        ]
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Arquivo"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Abrir o arquivo no SharePoint (nova aba)",
+                    "url": "${__data.fields.url:raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Site"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 220
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pasta"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Abrir a pasta no SharePoint (nova aba)",
+                    "url": "${__data.fields[\"url da pasta\"]:raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Versões antigas"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 190
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "text"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "continuous-BlYlRd"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Qtd versões"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Tamanho"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "bytes"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Alterado"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeFromNow"
+              },
+              {
+                "id": "custom.width",
+                "value": 130
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "url da pasta"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Maiores históricos – versões antigas",
+      "description": "Soma das versões antigas dos ${cfg_max} arquivos com maior histórico de versões (tabela ao lado): o que a limpeza de versões desses arquivos liberaria.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 68,
+        "w": 4,
+        "h": 6
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "/^SPO: Maiores (históricos de versões – somados|arquivos .*versões antigas somadas)$/"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "bytes",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 104,
+      "type": "row",
+      "title": "Saúde da coleta e alertas",
+      "collapsed": false,
+      "panels": [],
+      "gridPos": {
+        "x": 0,
+        "y": 74,
+        "w": 24,
+        "h": 1
+      }
+    },
+    {
+      "id": 7,
+      "type": "stat",
+      "title": "Coleta do Graph",
+      "description": "Vazio = coleta OK. Qualquer texto é a mensagem de erro do Graph/Entra ID.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Erro na coleta"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(?!time$).*/i",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "empty",
+                "result": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "Sem dados",
+                  "color": "orange",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 20,
+      "type": "stat",
+      "title": "Coleta de pastas",
+      "description": "Vazio = coleta de bibliotecas/pastas OK. Sem dados = macro {$SPO.FOLDERS.SITES} vazia ou item ainda não coletado.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 4,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Erro na coleta de pastas"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(?!time$).*/i",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "empty",
+                "result": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "Sem dados",
+                  "color": "orange",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 25,
+      "type": "stat",
+      "title": "Coleta das lixeiras",
+      "description": "Vazio = OK. Texto = erro da leitura das lixeiras pela API do SharePoint (item SPO: Leitura das lixeiras). Sem dados = item ainda não coletado.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeiras – erro na coleta"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(?!time$).*/i",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [
+            {
+              "type": "special",
+              "options": {
+                "match": "empty",
+                "result": {
+                  "text": "OK",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            },
+            {
+              "type": "special",
+              "options": {
+                "match": "null",
+                "result": {
+                  "text": "Sem dados",
+                  "color": "orange",
+                  "index": 1
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 26,
+      "type": "stat",
+      "title": "Lixeiras – sites lidos",
+      "description": "Sites lidos / sites com erro na última coleta das lixeiras.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeiras – sites lidos"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Lixeiras – sites com erro"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          },
+          "mappings": [],
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/sites lidos$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Lidos"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": "/sites com erro$/"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Com erro"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 8,
+      "type": "stat",
+      "title": "Data do relatório",
+      "description": "Data em que o Microsoft 365 gerou o relatório. Normal: 1 a 2 dias atrás.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "2",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Data do relatório"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "/^(?!time$).*/i",
+          "values": false
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": null
+              }
+            ]
+          },
+          "mappings": []
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 9,
+      "type": "stat",
+      "title": "Idade do relatório",
+      "description": "Laranja acima de 2 dias, vermelho acima de 3 dias (trigger).",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 20,
+        "y": 75,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "0",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": "SPO: Idade do relatório"
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "options": {
+            "showDisabledItems": false,
+            "skipEmptyValues": false,
+            "disableDataAlignment": false,
+            "useZabbixValueMapping": false,
+            "useTrends": "false"
+          },
+          "table": {
+            "skipEmptyValues": false
+          }
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "wideLayout": true,
+        "showPercentChange": false
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 172800
+              },
+              {
+                "color": "red",
+                "value": 259200
+              }
+            ]
+          },
+          "mappings": [],
+          "unit": "s",
+          "decimals": 0
+        },
+        "overrides": []
+      },
+      "timeFrom": "2d",
+      "hideTimeOverride": true
+    },
+    {
+      "id": 19,
+      "type": "alexanderzobnin-zabbix-triggers-panel",
+      "title": "Eventos das triggers",
+      "description": "Problemas ativos e resolvidos recentemente do host SharePoint Online.",
+      "datasource": {
+        "type": "alexanderzobnin-zabbix-datasource",
+        "uid": "${DS_ZABBIX}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 79,
+        "w": 24,
+        "h": 10
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "alexanderzobnin-zabbix-datasource",
+            "uid": "${DS_ZABBIX}"
+          },
+          "schema": 12,
+          "queryType": "5",
+          "group": {
+            "filter": "$grupo"
+          },
+          "host": {
+            "filter": "$host"
+          },
+          "application": {
+            "filter": ""
+          },
+          "itemTag": {
+            "filter": ""
+          },
+          "item": {
+            "filter": ""
+          },
+          "trigger": {
+            "filter": ""
+          },
+          "tags": {
+            "filter": ""
+          },
+          "proxy": {
+            "filter": ""
+          },
+          "functions": [],
+          "textFilter": "",
+          "useCaptureGroups": false,
+          "showProblems": "recent",
+          "options": {
+            "minSeverity": 0,
+            "sortProblems": "default",
+            "acknowledged": 2,
+            "hostsInMaintenance": false,
+            "hostProxy": false,
+            "limit": 100,
+            "useTimeRange": false,
+            "count": false
+          }
+        }
+      ],
+      "options": {
+        "layout": "table",
+        "showTags": true,
+        "statusField": true,
+        "severityField": true,
+        "ackField": true,
+        "ageField": true,
+        "opdataField": true,
+        "descriptionField": false,
+        "hostField": false,
+        "sortProblems": "lastchange",
+        "pageSize": 10,
+        "fontSize": "100%",
+        "problemTimeline": true,
+        "highlightNewEvents": true,
+        "highlightNewerThan": "1h"
+      }
+    }
+  ]
+}
