@@ -1,5 +1,7 @@
 # SharePoint Online – Monitoramento de armazenamento com Zabbix e Grafana
 
+> Autor: **Pablo Pires de Godoi Silva**
+
 Template para **Zabbix 7.4** e painel para **Grafana** que mostram, em um só lugar, **onde está o espaço do SharePoint Online**: uso e cota do tenant, sites, bibliotecas, pastas, maiores arquivos, histórico de versões e lixeiras (1º e 2º estágio).
 
 Toda a coleta é feita pelo próprio Zabbix, com itens do tipo **Script** (JavaScript) chamando o **Microsoft Graph** e a **API REST do SharePoint**. Não precisa de agente, servidor Windows nem tarefas agendadas. **Tudo é somente leitura:** nada é excluído, restaurado ou alterado no tenant.
@@ -21,22 +23,64 @@ Alertas incluídos: tenant acima de 90% e de 100% da cota (sites em somente leit
 
 ## Arquitetura
 
+```mermaid
+flowchart TB
+    subgraph M365["☁️ Microsoft 365"]
+        direction LR
+        ENTRA["🔐 Entra ID<br/>login.microsoftonline.com"]
+        GRAPH["📊 Microsoft Graph<br/>graph.microsoft.com"]
+        SPO["🗂️ SharePoint REST<br/>tenant.sharepoint.com"]
+    end
+
+    subgraph ZBX["🖥️ Zabbix Server / Proxy 7.4 · host sem agente"]
+        direction TB
+        subgraph SCRIPTS["Itens Script · JavaScript · somente leitura"]
+            direction LR
+            R["📑 Relatórios de uso<br/>spo.reports.get · 6 h"]
+            F["📁 Bibliotecas e pastas<br/>spo.folders.get · 3 h"]
+            B["📄 Maiores arquivos e versões<br/>spo.bigfiles.get · 6 h"]
+            L["♻️ Lixeiras 1º e 2º estágio<br/>spo.recyclebin.get · 6 h · opcional"]
+        end
+        DEP["⚙️ Itens dependentes · Descobertas LLD · Triggers"]
+        SCRIPTS --> DEP
+    end
+
+    subgraph GRF["📈 Grafana"]
+        direction LR
+        DS["🔌 Fonte de dados Zabbix<br/>usuário somente leitura"]
+        DASH["🖼️ Painel SharePoint Online<br/>capacidade · lixeiras · sites · arquivos · saúde"]
+        DS --> DASH
+    end
+
+    ENTRA -.->|"🔑 token: segredo do cliente ou certificado"| SCRIPTS
+    GRAPH ==>|"Reports.Read.All · Sites.Read.All"| SCRIPTS
+    SPO ==>|"Sites.FullControl.All · certificado"| L
+    DEP ==>|"API do Zabbix"| DS
+
+    classDef ms fill:#0078D4,stroke:#004E8C,color:#ffffff
+    classDef script fill:#FDECEC,stroke:#D40000,color:#5A0000
+    classDef opt fill:#FDECEC,stroke:#D40000,color:#5A0000,stroke-dasharray:5 3
+    classDef core fill:#D40000,stroke:#8E0000,color:#ffffff
+    classDef gf fill:#F46800,stroke:#B34D00,color:#ffffff
+
+    class ENTRA,GRAPH,SPO ms
+    class R,F,B script
+    class L opt
+    class DEP core
+    class DS,DASH gf
+
+    style M365 fill:#EAF3FC,stroke:#0078D4,stroke-width:2px,color:#003A6C
+    style ZBX fill:#FFF5F5,stroke:#D40000,stroke-width:2px,color:#5A0000
+    style SCRIPTS fill:#FFFFFF,stroke:#E8A0A0,color:#5A0000
+    style GRF fill:#FFF3EA,stroke:#F46800,stroke-width:2px,color:#7A3400
 ```
-                     ┌──────────────────────────────── Microsoft 365 ───────────────────────────────┐
-                     │  login.microsoftonline.com   graph.microsoft.com   <tenant>.sharepoint.com   │
-                     └───────────────▲───────────────────────▲──────────────────────▲──────────────┘
-                                     │ token (segredo)        │ relatórios, sites,    │ lixeiras
-                                     │ token (certificado)    │ drives, pesquisa      │ (REST, certificado)
-┌────────────────────────────────────┴────────────────────────┴──────────────────────┴─────────────┐
-│ Zabbix Server / Proxy 7.4  ─  host "SharePoint Online" (sem interface)                            │
-│   Itens Script (JavaScript): spo.reports.get · spo.folders.get · spo.bigfiles.get · spo.recyclebin.get │
-│   → itens dependentes, descobertas (LLD) e triggers                                               │
-└───────────────────────────────────────────────▲──────────────────────────────────────────────────┘
-                                                │ API do Zabbix (plugin Zabbix para Grafana)
-                                     ┌──────────┴──────────┐
-                                     │  Grafana – painel    │
-                                     └─────────────────────┘
-```
+
+| Etapa | O que acontece |
+|---|---|
+| 🔑 **Autenticação** | Cada item Script pede um token ao Entra ID. Os itens do Graph usam o **segredo do cliente**; as lixeiras usam **certificado** (JWT RS256 assinado pelo próprio Zabbix). |
+| 📥 **Coleta** | Os itens leem o Microsoft Graph e a API REST do SharePoint, **somente leitura**, e devolvem um JSON. |
+| ⚙️ **Processamento** | Itens dependentes extraem os valores, as descobertas (LLD) criam itens por site, biblioteca, pasta e arquivo, e as triggers avaliam cota e falhas. |
+| 📈 **Visualização** | O Grafana lê o Zabbix pela API, com um usuário só leitura, e monta o painel. |
 
 ## Requisitos
 
@@ -93,6 +137,10 @@ O porquê de cada permissão, e por que as lixeiras exigem certificado e control
 - **Itens da lixeira:** cada "item" é uma entrada da lixeira. Uma pasta excluída conta como 1 item, e o tamanho dela inclui todo o conteúdo.
 - **Somente leitura:** o template não faz limpeza. Exclusão de versões, esvaziamento de lixeiras e purga de sites devem ser feitos à parte, com backup e aprovação.
 
+## Autor
+
+**Pablo Pires de Godoi Silva**: criação, desenvolvimento e documentação do template, do painel e dos scripts.
+
 ## Licença
 
-[MIT](LICENSE).
+[MIT](LICENSE) © 2026 Pablo Pires de Godoi Silva. Uso, cópia e modificação livres, mantendo o aviso de autoria e a licença.

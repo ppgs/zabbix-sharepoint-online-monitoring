@@ -1,5 +1,7 @@
 # Changelog
 
+Autor: Pablo Pires de Godoi Silva.
+
 ## 1.0.0
 
 Primeira versão pública.
