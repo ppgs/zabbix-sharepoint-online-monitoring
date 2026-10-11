@@ -108,8 +108,7 @@ flowchart TB
 │   ├── 05-ferramentas-powershell.md            ← scripts de validação e análise
 │   ├── 06-seguranca.md                         ← boas práticas e manutenção das credenciais
 │   └── 07-limpeza-de-versoes.md                ← script PowerShell: manter só as N versões mais recentes
-├── tools/                                      ← scripts PowerShell 7 de validação, análise e limpeza de versões
-└── src/                                        ← código JavaScript dos itens Script (para revisão)
+└── tools/                                      ← scripts PowerShell 7 de validação, análise e limpeza de versões
 ```
 
 ## Início rápido
